@@ -439,7 +439,7 @@
                     <div class="submit-area">
                         <button type="submit" class="btn-submit" id="submitBtn">
                             <span class="spinner"></span>
-                            <span class="btn-text">🚀 提交需求，开始生成</span>
+                            <span class="btn-text">🚀 提交需求</span>
                         </button>
                     </div>
 
@@ -447,17 +447,12 @@
                     <div class="progress-area" id="progressArea">
                         <div class="progress-step" id="stepUpload">
                             <span class="step-icon">📤</span>
-                            <span>正在上传资料…</span>
+                            <span>正在提交资料…</span>
                             <span class="step-spinner"></span>
                         </div>
-                        <div class="progress-step" id="stepSubmit">
+                        <div class="progress-step" id="stepKimi">
                             <span class="step-icon">🤖</span>
-                            <span>已提交至 Kimi AgentPPT 生成中…</span>
-                            <span class="step-spinner"></span>
-                        </div>
-                        <div class="progress-step" id="stepEmail">
-                            <span class="step-icon">📬</span>
-                            <span>成品将通过邮箱发送给你</span>
+                            <span>复制提示词到 Kimi AgentPPT 生成</span>
                             <span class="step-spinner"></span>
                         </div>
                     </div>
@@ -471,10 +466,15 @@
     <div class="modal-overlay" id="successModal">
         <div class="modal">
             <div class="modal-icon">🎉</div>
-            <h3>需求已提交成功！</h3>
-            <p class="modal-sub" id="successMsg">你的 PPT 正在使用 Kimi + AgentPPT 智能生成，成品将在 1-2 小时内发送到你的邮箱。</p>
-            <div class="modal-actions">
-                <button id="modalOkBtn">我知道了</button>
+            <h3>需求提交成功！</h3>
+            <p class="modal-sub">已将需求生成 Kimi AgentPPT 提示词，复制后去 Kimi 中粘贴生成 PPT。</p>
+            <div style="text-align:left;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:16px;">
+                <div style="font-size:13px;font-weight:600;color:#475569;margin-bottom:8px;">🤖 复制以下提示词到 Kimi AgentPPT：</div>
+                <pre id="kimiPrompt" style="font-size:13px;font-family:monospace;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow-y:auto;background:#fff;padding:12px;border-radius:8px;border:1px solid #e2e8f0;margin:0;line-height:1.6;"></pre>
+            </div>
+            <div class="modal-actions" style="display:flex;gap:10px;">
+                <button id="copyPromptBtn" style="flex:1;padding:10px 16px;font-size:14px;font-weight:500;font-family:inherit;border-radius:10px;border:none;cursor:pointer;background:#2563eb;color:#fff;transition:background 0.2s;">📋 复制提示词</button>
+                <button id="modalOkBtn" style="padding:10px 16px;font-size:14px;font-weight:500;font-family:inherit;border-radius:10px;border:none;cursor:pointer;background:#f1f5f9;color:#475569;transition:background 0.2s;">关闭</button>
             </div>
         </div>
     </div>
@@ -640,8 +640,7 @@
 
             // ——— Progress ———
             var stepUpload = document.getElementById('stepUpload');
-            var stepSubmit = document.getElementById('stepSubmit');
-            var stepEmail = document.getElementById('stepEmail');
+            var stepKimi = document.getElementById('stepKimi');
             var progressArea = document.getElementById('progressArea');
 
             function setStep(stepEl, state) {
@@ -653,8 +652,7 @@
             function resetProgress() {
                 progressArea.classList.remove('active');
                 setStep(stepUpload, '');
-                setStep(stepSubmit, '');
-                setStep(stepEmail, '');
+                setStep(stepKimi, '');
             }
 
             // ——— Submit ———
@@ -695,13 +693,13 @@
                 })
                 .then(function(data) {
                     setStep(stepUpload, 'done');
-                    setStep(stepSubmit, 'done');
-                    setStep(stepEmail, 'done');
+                    setStep(stepKimi, 'done');
                     submitBtn.classList.remove('loading');
                     submitBtn.disabled = false;
 
-                    var email = document.getElementById('email').value.trim();
-                    successMsg.textContent = '你的 PPT 已提交至 Kimi AgentPPT 智能生成！成品将在 1-2 小时内发送到 ' + email;
+                    // 显示 Kimi AgentPPT 提示词
+                    var promptEl = document.getElementById('kimiPrompt');
+                    if (promptEl) promptEl.textContent = data.agent_prompt || '(未生成提示词)';
                     successModal.classList.add('open');
 
                     form.reset();
@@ -711,8 +709,7 @@
                 })
                 .catch(function(err) {
                     setStep(stepUpload, '');
-                    setStep(stepSubmit, '');
-                    setStep(stepEmail, '');
+                    setStep(stepKimi, '');
                     submitBtn.classList.remove('loading');
                     submitBtn.disabled = false;
                     progressArea.classList.remove('active');
@@ -721,9 +718,19 @@
             });
 
             // ——— Modal ———
+            var copyPromptBtn = document.getElementById('copyPromptBtn');
             modalOkBtn.addEventListener('click', function() {
                 successModal.classList.remove('open');
             });
+            if (copyPromptBtn) {
+                copyPromptBtn.addEventListener('click', function() {
+                    var text = document.getElementById('kimiPrompt').textContent;
+                    copyToClipboard(text).then(function(ok) {
+                        if (ok) showToast('提示词已复制，快去 Kimi AgentPPT 粘贴吧！', 'success');
+                        else showToast('复制失败，请手动选中复制', 'error');
+                    });
+                });
+            }
             successModal.addEventListener('click', function(e) {
                 if (e.target === successModal) successModal.classList.remove('open');
             });

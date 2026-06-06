@@ -253,55 +253,47 @@ async function waitAndDownload(Runtime, Page, downloadDir) {
   const TIMEOUT = 3600000; // 最长 60 分钟
   let lastStatus = '';
 
-  // 预先设置下载行为
-  try {
-    await Page.setDownloadBehavior({
-      behavior: 'allow',
-      downloadPath: downloadDir,
-    });
-    log(`已设置下载路径: ${downloadDir}`, 'dl');
-  } catch(e) {
-    log(`设置下载路径失败: ${e.message} (后续尝试用 CDP 处理)`, 'warn');
-  }
-
-  // ---- 阶段 1: 等待生成完成（检测"去编辑"按钮） ----
+  // ---- 阶段 1: 等待生成完成（检测预览卡片或"去编辑"按钮） ----
   log('阶段 1: 等待生成完成...', 'step');
   while (Date.now() - start < TIMEOUT) {
     const { result } = await Runtime.evaluate({
       expression: `(() => {
-        const body = document.body.innerText;
         const status = {};
 
-        // 检测完成标志
-        if (body.includes('PPT 已生成') || body.includes('生成完成')) status.phase = 'completed';
-        else if (body.includes('生成失败') || body.includes('出错了')) status.phase = 'error';
+        // 检测预览卡片
+        const card = document.querySelector('.preview-card');
+        if (card) {
+          status.hasCard = true;
+          status.cardText = card.textContent.replace(/\\s+/g, ' ').trim().slice(0, 100);
+        }
 
         // 检测"去编辑"按钮
         const buttons = document.querySelectorAll('button');
         buttons.forEach(b => {
           const t = b.textContent.replace(/\\s+/g, ' ').trim();
           if (t === '去编辑') status.hasEditBtn = true;
-          if (t === '下载' || t.includes('下载')) status.hasDownload = true;
         });
 
-        // 获取页面预览文字判断进度
-        const lines = body.split('\\n').filter(l => l.trim());
-        status.lastLines = lines.slice(-5).join(' | ').slice(0, 200);
+        // 检测文本中的完成标志
+        const body = document.body.innerText;
+        if (body.includes('PPT 已生成') || body.includes('生成完成')) status.phase = 'completed';
+        if (body.includes('导出为PPTX') || body.includes('您可以点击下方卡片')) status.phase = 'completed';
+        if (body.includes('生成失败') || body.includes('出错了')) status.phase = 'error';
+
         return status;
       })()`,
       returnByValue: true,
     });
 
     const st = result.value;
-    const statusText = st.hasEditBtn ? '✅ 已完成(出现去编辑)' : (st.hasDownload ? '✅ 已完成(出现下载)' : (st.phase || '⏳ 生成中'));
+    const statusText = st.hasCard ? '✅ 已完成(出现预览卡片)' : (st.phase || '⏳ 生成中');
     if (statusText !== lastStatus) {
       log(`状态: ${statusText}`);
-      if (st.lastLines) log(`  最近: ${st.lastLines}`);
+      if (st.cardText) log(`  卡片: ${st.cardText}`);
       lastStatus = statusText;
     }
 
-    // 生成完成
-    if (st.hasEditBtn || st.hasDownload || st.phase === 'completed') {
+    if (st.hasCard || st.phase === 'completed') {
       log('🎉 生成完成！', 'info');
       break;
     }
@@ -310,90 +302,78 @@ async function waitAndDownload(Runtime, Page, downloadDir) {
       return { success: false, action: 'error' };
     }
 
-    await sleep(3000);
+    await sleep(5000);
   }
 
   if (Date.now() - start >= TIMEOUT) {
-    log(`超时 (${TIMEOUT/1000})`, 'warn');
     return { success: false, action: 'timeout' };
   }
 
-  // ---- 阶段 2: 进入编辑器 ----
+  // ---- 阶段 2: 进入编辑器（点击预览卡片） ----
   log('阶段 2: 进入编辑器...', 'step');
-  const { result: editResult } = await Runtime.evaluate({
+  await Runtime.evaluate({
     expression: `(() => {
+      const card = document.querySelector('.preview-card');
+      if (card) { card.click(); return 'card-clicked'; }
+      // 也可能卡片在 clickable 容器内
+      const container = document.querySelector('.ppt-cards');
+      if (container) { container.click(); return 'container-clicked'; }
+      // 或者直接点"去编辑"按钮
       const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === '去编辑');
-      if (btn) { btn.click(); return 'clicked'; }
-      // 如果没找到去编辑但已经在了编辑器页面，返回 already-there
-      if (window.location.href.includes('edit') || window.location.href.includes('editor')) return 'already-there';
+      if (btn) { btn.click(); return 'btn-clicked'; }
       return 'not-found';
     })()`,
     returnByValue: true,
   });
-  log(`点击去编辑: ${editResult.value}`);
+  log('已点击预览卡片进入编辑器');
 
-  if (editResult.value === 'clicked') {
-    // 等待页面跳转（可能新标签页或当前页面跳转）
-    await sleep(5000);
+  // 等待编辑器加载（可能打开覆盖层或新页面）
+  await sleep(3000);
 
-    // 检查是否打开了新标签页
-    const allTabs = await CDP.List({ port: DEBUG_PORT });
-    const editorTab = allTabs.find(t => t.url.includes('edit') || t.url.includes('editor') || (t.url.includes('kimi.com') && t.url.includes('ppt')));
-    if (editorTab && !editorTab.url.includes('chat')) {
-      log(`检测到编辑器新标签页: ${editorTab.url}`, 'info');
-      // 需要在新 tab 上继续操作...但目前我们在旧 tab 上，后面会单独处理
-    }
+  // 检查是否有 iframe（编辑器可能在 iframe 中）
+  const { result: iframeCheck } = await Runtime.evaluate({
+    expression: `(() => {
+      const iframes = document.querySelectorAll('iframe');
+      return Array.from(iframes).filter(f => f.offsetParent !== null).map(f => ({
+        src: (f.src || '').slice(0, 100),
+        w: f.getBoundingClientRect().width,
+        h: f.getBoundingClientRect().height,
+        x: Math.round(f.getBoundingClientRect().x),
+        y: Math.round(f.getBoundingClientRect().y),
+      }));
+    })()`,
+    returnByValue: true,
+  });
+  if (iframeCheck.value && iframeCheck.value.length > 0) {
+    log(`发现 ${iframeCheck.value.length} 个可见 iframe，编辑器可能在 iframe 中`, 'info');
+    iframeCheck.value.forEach(f => log(`  [${f.x},${f.y}] ${f.w}x${f.h} ${f.src.slice(0,60)}`, 'info'));
   }
 
-  // ---- 阶段 3: 导出 ----
-  // 注意：如果编辑器在新标签页打开，需要用户手动确认或我们重新连接
-  log('阶段 3: 导出...', 'step');
+  // ---- 阶段 3: 在编辑器中找导出/下载按钮 ----
+  log('阶段 3: 查找导出按钮...', 'step');
+  // 编辑器加载后，右上角会有导出/分享等操作按钮
+  // 可能需要点击一个"更多"按钮展开菜单，或直接有"导出"按钮
   await sleep(2000);
 
-  // 在当前页面找"导出"或"下载"按钮
-  const { result: exportResult } = await Runtime.evaluate({
+  const { result: exportSearch } = await Runtime.evaluate({
     expression: `(() => {
-      // 查找各种可能的导出/下载按钮
-      const allElements = document.querySelectorAll('button, a, [class*="btn"], [class*="action"], [class*="toolbar"] *');
       const results = [];
 
+      // 搜索所有可见元素中是否包含导出相关文字
+      const allElements = document.querySelectorAll('button, a, [class*="action"], [class*="tool"], [class*="header"] *');
       allElements.forEach(el => {
+        if (el.offsetParent === null) return;
         const t = el.textContent.replace(/\\s+/g, ' ').trim();
-        // 匹配导出相关文字
-        if (t === '导出' || t === 'Export' || t === '下载' || t === 'Download' ||
-            t.includes('导出') || t.includes('下载') || el.className.toLowerCase().includes('export')) {
-          results.push({
-            text: t.slice(0, 20),
-            cls: el.className.slice(0, 60),
-            tag: el.tagName,
-            x: Math.round(el.getBoundingClientRect().x),
-            y: Math.round(el.getBoundingClientRect().y),
-            visible: el.offsetParent !== null,
-          });
-        }
-        // 匹配 aria-label
-        const aria = el.getAttribute('aria-label') || '';
-        if (aria.includes('导出') || aria.includes('下载') || aria.toLowerCase().includes('export')) {
-          results.push({
-            text: '[aria] ' + aria.slice(0, 20),
-            cls: el.className.slice(0, 60),
-            tag: el.tagName,
-            x: Math.round(el.getBoundingClientRect().x),
-            y: Math.round(el.getBoundingClientRect().y),
-            visible: el.offsetParent !== null,
-          });
-        }
-        // 匹配 title
-        const title = el.getAttribute('title') || '';
-        if (title.includes('导出') || title.includes('下载')) {
-          results.push({
-            text: '[title] ' + title.slice(0, 20),
-            cls: el.className.slice(0, 60),
-            tag: el.tagName,
-            x: Math.round(el.getBoundingClientRect().x),
-            y: Math.round(el.getBoundingClientRect().y),
-            visible: el.offsetParent !== null,
-          });
+        const cls = (el.className || '') + ' ' + (el.getAttribute('role') || '');
+        const r = el.getBoundingClientRect();
+
+        if (r.width < 5 || r.height < 5) return;
+
+        // 匹配导出/下载
+        if (t === '导出' || t === '下载' || t === 'Export' || t === 'Download' ||
+            t.includes('导出') || t.includes('下载') ||
+            cls.includes('export') || cls.includes('download')) {
+          results.push({ text: t.slice(0,20), cls: cls.slice(0,50), x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w) });
         }
       });
 
@@ -402,62 +382,74 @@ async function waitAndDownload(Runtime, Page, downloadDir) {
     returnByValue: true,
   });
 
-  const exportBtns = exportResult.value;
-  log(`找到 ${exportBtns.length} 个导出相关按钮`, 'info');
-  exportBtns.forEach(b => log(`  [${b.x},${b.y}] ${b.text} | ${b.cls.slice(0,40)}`, 'info'));
+  if (exportSearch.value && exportSearch.value.length > 0) {
+    log(`找到 ${exportSearch.value.length} 个导出相关按钮`, 'info');
+    exportSearch.value.forEach(b => log(`  [${b.x},${b.y}] ${b.text} | ${b.cls}`, 'info'));
 
-  // 尝试点击导出/下载按钮
-  let exportClicked = false;
-  for (const btn of exportBtns) {
-    if (btn.text === '导出' || btn.text === '下载' || btn.text.includes('导出') || btn.text.includes('下载')) {
-      if (btn.visible) {
-        log(`点击: ${btn.text}`, 'dl');
-        await Runtime.evaluate({
-          expression: `(() => {
-            const el = document.elementFromPoint(${btn.x + 5}, ${btn.y + 5});
-            if (el) { el.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true})); return 'clicked'; }
-            return 'not-found';
-          })()`,
-          returnByValue: true,
+    // 点击第一个匹配的
+    const target = exportSearch.value.find(b => b.text === '导出' || b.text.includes('导出')) || exportSearch.value[0];
+    log(`点击: ${target.text}`, 'dl');
+
+    // 设置下载行为
+    try {
+      await Page.setDownloadBehavior({
+        behavior: 'allow',
+        downloadPath: downloadDir,
+      });
+    } catch(e) {
+      log(`设置下载路径失败: ${e.message} (可能是新标签页)`, 'warn');
+    }
+
+    await Runtime.evaluate({
+      expression: `(() => {
+        const el = document.elementFromPoint(${target.x + 5}, ${target.y + 5});
+        if (el) { el.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true})); return 'clicked'; }
+        return 'not-found';
+      })()`,
+      returnByValue: true,
+    });
+    log('已点击导出按钮', 'dl');
+    await sleep(5000);
+  } else {
+    log('当前页面未找到导出按钮', 'warn');
+    log('导出按钮可能在编辑器内部，需要进入编辑器内层', 'info');
+
+    // 尝试点击右上角"更多"或"..."的按钮
+    const { result: moreBtns } = await Runtime.evaluate({
+      expression: `(() => {
+        const topRight = [];
+        const all = document.querySelectorAll('button, [role="button"], [class*="icon"], [class*="more"], [class*="menu"]');
+        all.forEach(el => {
+          if (el.offsetParent === null) return;
+          const r = el.getBoundingClientRect();
+          // 右上角区域
+          if (r.y < 80 && r.x > 500 && r.width > 10 && r.height > 10) {
+            topRight.push({
+              t: el.textContent.replace(/\\s+/g,' ').trim().slice(0,20),
+              cls: (el.className || '').slice(0, 50),
+              x: Math.round(r.x), y: Math.round(r.y)
+            });
+          }
         });
-        exportClicked = true;
-        await sleep(2000);
-        break;
-      }
+        return topRight;
+      })()`,
+      returnByValue: true,
+    });
+    if (moreBtns.value && moreBtns.value.length > 0) {
+      log('右上角元素:', 'info');
+      moreBtns.value.forEach(b => log(`  [${b.x},${b.y}] ${b.t} | ${b.cls}`, 'info'));
     }
   }
 
-  // 如果没找到导出按钮，可能在编辑器新标签页
-  if (!exportClicked) {
-    log('当前页面未找到导出按钮，可能在编辑器新标签页中', 'warn');
-    log('尝试查找新标签页...', 'info');
-
-    const allTabs = await CDP.List({ port: DEBUG_PORT });
-    const newTab = allTabs.find(t =>
-      t.url.includes('kimi.com') && !t.url.includes('chat') && t.id !== kimiInfo?.tab?.id
-    );
-
-    if (newTab) {
-      log(`找到新标签页: ${newTab.url}`, 'info');
-      // 注意：这里需要重新连接新标签页并操作导出
-      // 但由于 CDP 连接限制，这里告知用户手动操作
-      log('请切换到新标签页，手动点击右上角"导出"保存 PPT', 'warn');
-    }
-  }
-
-  // ---- 阶段 4: 等待文件下载完成 ----
+  // ---- 阶段 4: 等待文件下载 ----
   log('阶段 4: 等待文件保存...', 'step');
-  await sleep(3000);
-
-  // 检查下载目录是否有新文件
-  const fileInfo = await findDownloadedFile(downloadDir, 10000);
+  const fileInfo = await findDownloadedFile(downloadDir, 15000);
 
   if (fileInfo) {
     log(`✅ PPT 已保存到: ${fileInfo.filePath}`, 'dl');
   } else {
-    log('⚠️ 未检测到下载文件，导出可能需要手动确认保存位置', 'warn');
-    log('   PPT 应已通过浏览器下载机制保存到设置的目录', 'info');
-    log(`   检查目录: ${downloadDir}`, 'info');
+    log('⚠️ 未检测到下载文件，可能还未完成', 'warn');
+    log(`  检查目录: ${downloadDir}`, 'info');
   }
 
   return { success: true, filePath: fileInfo?.filePath || null };

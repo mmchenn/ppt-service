@@ -697,6 +697,9 @@
                     submitBtn.classList.remove('loading');
                     submitBtn.disabled = false;
 
+                    // 尝试触发本地 CDP 自动化 (如果 webhook 服务运行中)
+                    triggerLocalCDP(data);
+
                     // 显示 Kimi AgentPPT 提示词
                     var promptEl = document.getElementById('kimiPrompt');
                     if (promptEl) promptEl.textContent = data.agent_prompt || '(未生成提示词)';
@@ -716,6 +719,35 @@
                     showToast(err.message || '提交失败，请稍后重试', 'error');
                 });
             });
+
+            // ——— 本地 CDP Webhook 触发 ———
+            function triggerLocalCDP(data) {
+                // 如果本地 webhook 服务运行中，自动触发 Kimi 提交
+                var webhookUrl = localStorage.getItem('webhook_url') || 'http://localhost:3456/webhook';
+                var payload = {
+                    name: data._name || document.getElementById('name').value.trim(),
+                    email: data._email || document.getElementById('email').value.trim(),
+                    topic: data._topic || document.getElementById('topic').value.trim(),
+                    pages: data._pages || document.getElementById('pages').value,
+                    deadline: data._deadline || document.getElementById('deadline').value,
+                    style: document.getElementById('style').value,
+                    notes: data._notes || document.getElementById('notes').value.trim(),
+                    agent_prompt: data.agent_prompt,
+                };
+
+                fetch(webhookUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                })
+                .then(function(r) {
+                    if (r.ok) showToast('🤖 已自动提交到 Kimi 生成', 'success');
+                    else showToast('本地 Webhook 未响应，请手动复制提示词', 'info');
+                })
+                .catch(function() {
+                    // 本地服务未运行，静默忽略
+                });
+            }
 
             // ——— Modal ———
             var copyPromptBtn = document.getElementById('copyPromptBtn');

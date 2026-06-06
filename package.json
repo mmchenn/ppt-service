@@ -1,0 +1,29 @@
+{
+  "name": "ppt-service",
+  "version": "1.0.0",
+  "description": "一个专业的 PPT 代制作服务需求收集页面。客户打开页面 → 填写需求 → 一键复制发给卖家 → 卖家使用 Kimi + AgentPPT 完成制作。",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test-connection.mjs",
+    "check": "node test-connection.mjs",
+    "cdp": "node kimi-cdp.mjs",
+    "webhook": "node server.mjs",
+    "start": "node server.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mmchenn/ppt-service.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/mmchenn/ppt-service/issues"
+  },
+  "homepage": "https://github.com/mmchenn/ppt-service#readme",
+  "dependencies": {
+    "chrome-remote-interface": "^0.34.0",
+    "ws": "^8.21.0"
+  }
+}

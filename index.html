@@ -3,18 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kimi PPT 代制作 · 专业幻灯片快速生成</title>
-    <meta name="description" content="专业 PPT 代制作服务，使用 Kimi + AgentPPT 智能生成，快速高效，品质保证。提交需求，当天交付。">
+    <title>PPT 智能生成 · Kimi + AgentPPT</title>
+    <meta name="description" content="专业 PPT 智能生成服务，使用 Kimi + AgentPPT 技术。提交需求与资料，PPT 直接发送到邮箱。">
 
-    <!-- Open Graph / 分享预览 -->
-    <meta property="og:title" content="Kimi PPT 代制作 · 专业幻灯片快速生成">
-    <meta property="og:description" content="专业 PPT 代制作服务，使用 Kimi + AgentPPT 智能生成，快速高效，品质保证。提交需求，当天交付。">
+    <meta property="og:title" content="PPT 智能生成 · Kimi + AgentPPT">
+    <meta property="og:description" content="提交需求与资料，PPT 直接发送到邮箱。">
     <meta property="og:type" content="website">
     <meta property="og:locale" content="zh_CN">
-    <meta name="twitter:card" content="summary_large_image">
 
     <style>
-        /* ===== Reset & Base ===== */
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         html { scroll-behavior: smooth; }
         body {
@@ -25,9 +22,9 @@
             min-height: 100vh;
         }
 
-        /* ===== Hero Section ===== */
+        /* ===== Hero ===== */
         .hero {
-            background: linear-gradient(135deg, #1a3a5c 0%, #2563eb 50%, #1d4ed8 100%);
+            background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #1d4ed8 100%);
             color: #fff;
             padding: 60px 24px 48px;
             text-align: center;
@@ -38,15 +35,15 @@
             content: '';
             position: absolute;
             inset: 0;
-            background: radial-gradient(circle at 30% 50%, rgba(255,255,255,0.08) 0%, transparent 60%);
+            background: radial-gradient(circle at 30% 50%, rgba(255,255,255,0.06) 0%, transparent 60%);
             pointer-events: none;
         }
         .hero-content { position: relative; z-index: 1; max-width: 680px; margin: 0 auto; }
         .hero-badge {
-            display: inline-block;
-            background: rgba(255,255,255,0.15);
+            display: inline-flex; align-items: center; gap: 6px;
+            background: rgba(255,255,255,0.12);
             backdrop-filter: blur(4px);
-            border: 1px solid rgba(255,255,255,0.25);
+            border: 1px solid rgba(255,255,255,0.2);
             border-radius: 20px;
             padding: 4px 16px;
             font-size: 13px;
@@ -64,7 +61,7 @@
         .hero p {
             font-size: clamp(15px, 2.5vw, 18px);
             opacity: 0.9;
-            max-width: 520px;
+            max-width: 560px;
             margin: 0 auto 6px;
         }
         .hero .highlight-row {
@@ -74,7 +71,7 @@
             gap: 12px 24px;
             margin-top: 18px;
             font-size: 14px;
-            opacity: 0.85;
+            opacity: 0.88;
         }
         .hero .highlight-row span { display: flex; align-items: center; gap: 6px; }
 
@@ -169,30 +166,46 @@
         .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         @media (max-width: 480px) { .form-row { grid-template-columns: 1fr; } }
 
-        /* ===== Optional Section Toggle ===== */
-        .optional-toggle {
-            display: flex; align-items: center; gap: 8px; cursor: pointer;
-            font-size: 14px; color: #64748b; font-weight: 500;
-            margin-top: 24px; padding-top: 20px; border-top: 1px dashed #d1d5db;
-            user-select: none;
+        /* ===== File Upload ===== */
+        .upload-zone {
+            border: 2px dashed #cbd5e1;
+            border-radius: 12px;
+            padding: 28px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+            background: #fafafa;
         }
-        .optional-toggle:hover { color: #334155; }
-        .optional-toggle svg { transition: transform 0.25s; }
-        .optional-toggle.open svg { transform: rotate(180deg); }
-        .optional-fields {
-            overflow: hidden;
-            max-height: 0;
-            opacity: 0;
-            transition: max-height 0.35s ease, opacity 0.3s ease, margin 0.3s ease;
-            margin-top: 0;
-        }
-        .optional-fields.open {
-            max-height: 600px;
-            opacity: 1;
-            margin-top: 18px;
-        }
+        .upload-zone:hover { border-color: #2563eb; background: #f0f6ff; }
+        .upload-zone.dragover { border-color: #2563eb; background: #eff6ff; }
+        .upload-zone.has-files { border-color: #10b981; background: #f0fdf4; }
+        .upload-zone .upload-icon { font-size: 32px; margin-bottom: 8px; }
+        .upload-zone .upload-text { font-size: 14px; color: #64748b; }
+        .upload-zone .upload-text strong { color: #2563eb; }
+        .upload-zone .upload-hint { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+        .upload-zone input[type="file"] { display: none; }
 
-        /* ===== Submit Button ===== */
+        .file-list { margin-top: 12px; }
+        .file-item {
+            display: flex; align-items: center; gap: 10px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin-bottom: 6px;
+        }
+        .file-item .file-icon { font-size: 18px; flex-shrink: 0; }
+        .file-item .file-info { flex: 1; min-width: 0; }
+        .file-item .file-name { font-size: 13px; font-weight: 500; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .file-item .file-size { font-size: 11px; color: #94a3b8; }
+        .file-item .file-remove {
+            background: none; border: none; cursor: pointer;
+            font-size: 18px; color: #94a3b8; padding: 2px 6px; border-radius: 4px; line-height: 1;
+            transition: background 0.15s, color 0.15s;
+        }
+        .file-item .file-remove:hover { background: #fee2e2; color: #ef4444; }
+
+        /* ===== Submit ===== */
         .submit-area { margin-top: 28px; }
         .btn-submit {
             width: 100%;
@@ -227,25 +240,32 @@
         .btn-submit.loading .btn-text { opacity: 0; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        .btn-download {
-            display: block;
-            width: 100%;
-            margin-top: 10px;
-            padding: 12px 20px;
-            font-size: 14px;
-            font-weight: 500;
-            font-family: inherit;
-            color: #2563eb;
-            background: #eff6ff;
-            border: 1.5px solid #bfdbfe;
+        /* ===== Progress ===== */
+        .progress-area { margin-top: 16px; display: none; }
+        .progress-area.active { display: block; }
+        .progress-step {
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 14px;
             border-radius: 10px;
-            cursor: pointer;
-            transition: background 0.2s, border-color 0.2s;
-            text-align: center;
+            background: #f8fafc;
+            margin-bottom: 8px;
+            border: 1px solid #e2e8f0;
+            font-size: 14px;
+            color: #94a3b8;
+            transition: all 0.3s;
         }
-        .btn-download:hover { background: #dbeafe; border-color: #93c5fd; }
-
-        .btn-download:disabled { opacity: 0.4; cursor: not-allowed; }
+        .progress-step .step-icon { width: 24px; text-align: center; font-size: 16px; flex-shrink: 0; }
+        .progress-step.active { border-color: #2563eb; background: #eff6ff; color: #1e293b; }
+        .progress-step.done { border-color: #10b981; background: #f0fdf4; color: #065f46; }
+        .progress-step .step-spinner {
+            display: none; width: 16px; height: 16px;
+            border: 2px solid rgba(37,99,235,0.2);
+            border-top-color: #2563eb;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+        .progress-step.active .step-spinner { display: inline-block; }
+        .progress-step.done .step-spinner { display: none; }
 
         /* ===== Toast ===== */
         .toast-container {
@@ -284,7 +304,7 @@
         .footer a { color: #64748b; text-decoration: none; }
         .footer a:hover { color: #2563eb; }
 
-        /* ===== Preview Modal ===== */
+        /* ===== Success Modal ===== */
         .modal-overlay {
             display: none;
             position: fixed; inset: 0;
@@ -298,40 +318,19 @@
         .modal {
             background: #fff;
             border-radius: 16px;
-            max-width: 520px;
+            max-width: 480px;
             width: 100%;
-            padding: 28px 24px;
+            padding: 36px 28px 28px;
             box-shadow: 0 8px 40px rgba(0,0,0,0.15);
             animation: modalIn 0.25s ease;
+            text-align: center;
         }
         @keyframes modalIn { from { opacity: 0; transform: scale(0.95) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
-        .modal h3 {
-            font-size: 18px;
-            margin-bottom: 4px;
-        }
-        .modal .modal-sub {
-            font-size: 14px; color: #64748b; margin-bottom: 16px;
-        }
-        .modal pre {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 10px;
-            padding: 16px;
-            font-size: 13px;
-            line-height: 1.7;
-            white-space: pre-wrap;
-            word-break: break-word;
-            max-height: 340px;
-            overflow-y: auto;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-        }
-        .modal-actions {
-            display: flex; gap: 10px;
-            margin-top: 16px;
-        }
-        .modal-actions button {
-            flex: 1;
-            padding: 10px 16px;
+        .modal .modal-icon { font-size: 48px; margin-bottom: 12px; }
+        .modal h3 { font-size: 20px; margin-bottom: 8px; }
+        .modal .modal-sub { font-size: 14px; color: #64748b; margin-bottom: 20px; }
+        .modal .modal-actions button {
+            padding: 10px 28px;
             font-size: 14px;
             font-weight: 500;
             font-family: inherit;
@@ -339,17 +338,10 @@
             border: none;
             cursor: pointer;
             transition: background 0.2s;
-        }
-        .modal-actions .btn-copy {
             background: #2563eb;
             color: #fff;
         }
-        .modal-actions .btn-copy:hover { background: #1d4ed8; }
-        .modal-actions .btn-close {
-            background: #f1f5f9;
-            color: #475569;
-        }
-        .modal-actions .btn-close:hover { background: #e2e8f0; }
+        .modal .modal-actions button:hover { background: #1d4ed8; }
     </style>
 </head>
 <body>
@@ -357,14 +349,14 @@
     <!-- ========== HERO ========== -->
     <header class="hero">
         <div class="hero-content">
-            <div class="hero-badge">✨ AI 智能驱动</div>
-            <h1>专业 PPT <span>代制作</span></h1>
-            <p>使用 Kimi + AgentPPT 智能生成，快速高效。提交需求，当天即可交付。</p>
+            <div class="hero-badge">🤖 Kimi + AgentPPT 驱动</div>
+            <h1>PPT <span>智能生成</span></h1>
+            <p>提交需求与资料，AI 自动生成专业 PPT，成品直接发送到你的邮箱。</p>
             <div class="highlight-row">
                 <span>⚡ 最快 1 小时交付</span>
                 <span>🎨 支持多种风格</span>
-                <span>📄 不限页数</span>
-                <span>🔁 免费修改</span>
+                <span>📄 限 35 页以内</span>
+                <span>📬 邮箱发送成品</span>
             </div>
         </div>
     </header>
@@ -375,28 +367,35 @@
             <div class="form-card">
                 <form id="pptForm" novalidate>
 
-                    <!-- 必填信息 -->
                     <div class="form-section-title">
                         📋 需求信息 <span class="required-mark">（带 * 为必填）</span>
                     </div>
 
-                    <div class="form-group">
-                        <label for="name">你的称呼 <span class="required-star">*</span></label>
-                        <input type="text" id="name" name="name" placeholder="怎么称呼你？" required autocomplete="name">
-                        <div class="error-msg">请输入你的称呼</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="name">你的称呼 <span class="required-star">*</span></label>
+                            <input type="text" id="name" name="name" placeholder="怎么称呼你？" required autocomplete="name">
+                            <div class="error-msg">请输入你的称呼</div>
+                        </div>
+                        <div class="form-group">
+                            <label for="email">接收邮箱 <span class="required-star">*</span></label>
+                            <input type="email" id="email" name="email" placeholder="成品将发送到此邮箱" required autocomplete="email">
+                            <div class="error-msg">请输入正确的邮箱地址</div>
+                        </div>
                     </div>
 
                     <div class="form-group">
                         <label for="topic">PPT 主题 <span class="required-star">*</span></label>
-                        <input type="text" id="topic" name="topic" placeholder="例如：2024年度市场部工作总结" required>
+                        <input type="text" id="topic" name="topic" placeholder="例如：2026 年度市场部工作总结" required>
                         <div class="error-msg">请输入 PPT 主题</div>
                     </div>
 
                     <div class="form-row">
                         <div class="form-group">
                             <label for="pages">页数要求 <span class="required-star">*</span></label>
-                            <input type="text" id="pages" name="pages" placeholder="例如：10-15 页" required>
-                            <div class="error-msg">请输入页数要求</div>
+                            <input type="number" id="pages" name="pages" placeholder="建议 10-35 页" min="1" max="35" required>
+                            <div class="hint">最大 35 页</div>
+                            <div class="error-msg">请输入 1-35 之间的页数</div>
                         </div>
                         <div class="form-group">
                             <label for="deadline">交付时间 <span class="required-star">*</span></label>
@@ -405,40 +404,62 @@
                         </div>
                     </div>
 
-                    <!-- 选填信息 -->
-                    <div class="optional-toggle" id="optionalToggle">
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="4 6 8 10 12 6"/></svg>
-                        补充信息（选填）
-                    </div>
-                    <div class="optional-fields" id="optionalFields">
-                        <div class="form-group">
-                            <label for="style">风格偏好</label>
-                            <select id="style" name="style">
-                                <option value="">不指定（我来推荐）</option>
-                                <option value="商务简约">商务简约</option>
-                                <option value="创意现代">创意现代</option>
-                                <option value="学术严谨">学术严谨</option>
-                                <option value="温和友好">温和友好</option>
-                                <option value="科技感">科技感</option>
-                                <option value="扁平化设计">扁平化设计</option>
-                                <option value="其他">其他</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="notes">参考资料 / 备注</label>
-                            <textarea id="notes" name="notes" placeholder="提供 Logo、配色参考、参考案例链接、重点内容等补充信息……"></textarea>
-                        </div>
+                    <div class="form-group">
+                        <label for="style">风格偏好</label>
+                        <select id="style" name="style">
+                            <option value="">不指定（AI 智能推荐）</option>
+                            <option value="商务简约">商务简约</option>
+                            <option value="创意现代">创意现代</option>
+                            <option value="学术严谨">学术严谨</option>
+                            <option value="温和友好">温和友好</option>
+                            <option value="科技感">科技感</option>
+                            <option value="扁平化设计">扁平化设计</option>
+                            <option value="其他">其他</option>
+                        </select>
                     </div>
 
-                    <!-- 提交 -->
+                    <div class="form-group">
+                        <label for="notes">内容要求 / 参考信息</label>
+                        <textarea id="notes" name="notes" placeholder="描述你想要的 PPT 内容大纲、参考资料、Logo 配色、参考案例链接等补充信息……"></textarea>
+                    </div>
+
+                    <!-- ===== File Upload ===== -->
+                    <div class="form-group">
+                        <label>附件资料 <span class="hint" style="font-weight:400;">（选填，支持图片、文档等，最多 5 个文件，每个不超过 10MB）</span></label>
+                        <div class="upload-zone" id="uploadZone">
+                            <div class="upload-icon">📎</div>
+                            <div class="upload-text">点击或拖拽文件到此处 <strong>上传附件</strong></div>
+                            <div class="upload-hint">支持 PDF、Word、Excel、图片、PPT 模板等</div>
+                            <input type="file" id="fileInput" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.zip,.rar,.txt,.md">
+                        </div>
+                        <div class="file-list" id="fileList"></div>
+                    </div>
+
+                    <!-- ===== Submit ===== -->
                     <div class="submit-area">
                         <button type="submit" class="btn-submit" id="submitBtn">
                             <span class="spinner"></span>
-                            <span class="btn-text">📋 生成需求单 &amp; 复制</span>
+                            <span class="btn-text">🚀 提交需求，开始生成</span>
                         </button>
-                        <button type="button" class="btn-download" id="downloadBtn" disabled>
-                            📥 下载需求文件 (.txt)
-                        </button>
+                    </div>
+
+                    <!-- ===== Progress ===== -->
+                    <div class="progress-area" id="progressArea">
+                        <div class="progress-step" id="stepUpload">
+                            <span class="step-icon">📤</span>
+                            <span>正在上传资料…</span>
+                            <span class="step-spinner"></span>
+                        </div>
+                        <div class="progress-step" id="stepSubmit">
+                            <span class="step-icon">🤖</span>
+                            <span>已提交至 Kimi AgentPPT 生成中…</span>
+                            <span class="step-spinner"></span>
+                        </div>
+                        <div class="progress-step" id="stepEmail">
+                            <span class="step-icon">📬</span>
+                            <span>成品将通过邮箱发送给你</span>
+                            <span class="step-spinner"></span>
+                        </div>
                     </div>
 
                 </form>
@@ -446,25 +467,24 @@
         </div>
     </main>
 
-    <!-- ========== TOAST CONTAINER ========== -->
-    <div class="toast-container" id="toastContainer"></div>
-
-    <!-- ========== MODAL ========== -->
-    <div class="modal-overlay" id="modalOverlay">
+    <!-- ========== SUCCESS MODAL ========== -->
+    <div class="modal-overlay" id="successModal">
         <div class="modal">
-            <h3>✅ 需求单已生成</h3>
-            <p class="modal-sub">请将以下内容发给卖家，即可开始制作</p>
-            <pre id="modalPreview"></pre>
+            <div class="modal-icon">🎉</div>
+            <h3>需求已提交成功！</h3>
+            <p class="modal-sub" id="successMsg">你的 PPT 正在使用 Kimi + AgentPPT 智能生成，成品将在 1-2 小时内发送到你的邮箱。</p>
             <div class="modal-actions">
-                <button class="btn-copy" id="modalCopyBtn">📋 复制并关闭</button>
-                <button class="btn-close" id="modalCloseBtn">关闭</button>
+                <button id="modalOkBtn">我知道了</button>
             </div>
         </div>
     </div>
 
+    <!-- ========== TOAST ========== -->
+    <div class="toast-container" id="toastContainer"></div>
+
     <!-- ========== FOOTER ========== -->
     <footer class="footer">
-        <p>Powered by Kimi + AgentPPT &nbsp;·&nbsp; 专业 PPT 代制作服务</p>
+        <p>Powered by Kimi + AgentPPT &nbsp;·&nbsp; 智能 PPT 生成服务</p>
     </footer>
 
     <script>
@@ -473,102 +493,142 @@
 
             const form = document.getElementById('pptForm');
             const submitBtn = document.getElementById('submitBtn');
-            const downloadBtn = document.getElementById('downloadBtn');
             const toastContainer = document.getElementById('toastContainer');
-            const modalOverlay = document.getElementById('modalOverlay');
-            const modalPreview = document.getElementById('modalPreview');
-            const modalCopyBtn = document.getElementById('modalCopyBtn');
-            const modalCloseBtn = document.getElementById('modalCloseBtn');
-            const optionalToggle = document.getElementById('optionalToggle');
-            const optionalFields = document.getElementById('optionalFields');
+            const successModal = document.getElementById('successModal');
+            const successMsg = document.getElementById('successMsg');
+            const modalOkBtn = document.getElementById('modalOkBtn');
 
-            let lastGeneratedText = '';
+            // ——— File Upload ———
+            const uploadZone = document.getElementById('uploadZone');
+            const fileInput = document.getElementById('fileInput');
+            const fileList = document.getElementById('fileList');
+            const MAX_FILES = 5;
+            const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+            let selectedFiles = [];
 
-            // ===== 选填区折叠 =====
-            optionalToggle.addEventListener('click', function() {
-                const isOpen = optionalFields.classList.toggle('open');
-                this.classList.toggle('open');
+            function formatFileSize(bytes) {
+                if (bytes < 1024) return bytes + ' B';
+                if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+                return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+            }
+
+            function renderFileList() {
+                fileList.innerHTML = '';
+                selectedFiles.forEach(function(file, index) {
+                    const item = document.createElement('div');
+                    item.className = 'file-item';
+                    const ext = file.name.split('.').pop().toLowerCase();
+                    const iconMap = { pdf: '📕', doc: '📘', docx: '📘', xls: '📗', xlsx: '📗', ppt: '📙', pptx: '📙', png: '🖼', jpg: '🖼', jpeg: '🖼', gif: '🖼', zip: '📦', rar: '📦', txt: '📄', md: '📄' };
+                    const icon = iconMap[ext] || '📎';
+                    item.innerHTML =
+                        '<span class="file-icon">' + icon + '</span>' +
+                        '<span class="file-info">' +
+                            '<div class="file-name">' + escapeHtml(file.name) + '</div>' +
+                            '<div class="file-size">' + formatFileSize(file.size) + '</div>' +
+                        '</span>' +
+                        '<button type="button" class="file-remove" data-index="' + index + '">✕</button>';
+                    item.querySelector('.file-remove').addEventListener('click', function() {
+                        selectedFiles.splice(index, 1);
+                        renderFileList();
+                        updateUploadZone();
+                    });
+                    fileList.appendChild(item);
+                });
+                updateUploadZone();
+            }
+
+            function escapeHtml(text) {
+                var div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            function updateUploadZone() {
+                if (selectedFiles.length > 0) {
+                    uploadZone.classList.add('has-files');
+                } else {
+                    uploadZone.classList.remove('has-files');
+                }
+            }
+
+            function addFiles(files) {
+                for (var i = 0; i < files.length; i++) {
+                    var file = files[i];
+                    if (selectedFiles.length >= MAX_FILES) {
+                        showToast('最多只能上传 ' + MAX_FILES + ' 个文件', 'error');
+                        break;
+                    }
+                    if (file.size > MAX_FILE_SIZE) {
+                        showToast('文件 "' + file.name + '" 超过 10MB 限制', 'error');
+                        continue;
+                    }
+                    selectedFiles.push(file);
+                }
+                renderFileList();
+            }
+
+            uploadZone.addEventListener('click', function() { fileInput.click(); });
+            fileInput.addEventListener('change', function() { addFiles(this.files); this.value = ''; });
+
+            uploadZone.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                this.classList.add('dragover');
+            });
+            uploadZone.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                this.classList.remove('dragover');
+            });
+            uploadZone.addEventListener('drop', function(e) {
+                e.preventDefault();
+                this.classList.remove('dragover');
+                if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
             });
 
-            // ===== Toast =====
+            // ——— Toast ———
             function showToast(message, type) {
                 type = type || 'info';
-                const toast = document.createElement('div');
+                var toast = document.createElement('div');
                 toast.className = 'toast toast-' + type;
-                const icons = { success: '✅', error: '❌', info: 'ℹ️' };
+                var icons = { success: '✅', error: '❌', info: 'ℹ️' };
                 toast.innerHTML = (icons[type] || '') + ' ' + message;
                 toastContainer.appendChild(toast);
                 setTimeout(function() {
                     toast.classList.add('toast-out');
                     setTimeout(function() { toast.remove(); }, 260);
-                }, 2800);
+                }, 3500);
             }
 
-            // ===== 设置最小日期 =====
+            // ——— Set min date ———
             (function() {
-                const deadline = document.getElementById('deadline');
+                var deadline = document.getElementById('deadline');
                 var today = new Date();
                 var y = today.getFullYear();
                 var m = String(today.getMonth() + 1).padStart(2, '0');
                 var d = String(today.getDate()).padStart(2, '0');
                 deadline.min = y + '-' + m + '-' + d;
+                if (!deadline.value) deadline.value = y + '-' + m + '-' + d;
             })();
 
-            // ===== 实时清除错误状态 =====
-            form.querySelectorAll('input, textarea').forEach(function(el) {
-                el.addEventListener('input', function() {
-                    this.classList.remove('error');
-                });
-                el.addEventListener('change', function() {
-                    this.classList.remove('error');
-                });
+            // ——— Real-time error clear ———
+            form.querySelectorAll('input, textarea, select').forEach(function(el) {
+                el.addEventListener('input', function() { this.classList.remove('error'); });
+                el.addEventListener('change', function() { this.classList.remove('error'); });
             });
 
-            // ===== 格式化需求文案 =====
-            function formatRequirement(data) {
-                var lines = [];
-                lines.push('📋 PPT 代制作需求单');
-                lines.push('━━━━━━━━━━━━━━━━━━');
-                lines.push('👤 称呼：' + data.name);
-                lines.push('📌 PPT主题：' + data.topic);
-                lines.push('📄 页数：' + data.pages);
-                lines.push('📅 交付时间：' + data.deadline);
-                if (data.style) {
-                    lines.push('🎨 风格要求：' + data.style);
-                }
-                if (data.notes) {
-                    lines.push('📎 参考资料：' + data.notes);
-                }
-                lines.push('');
-                lines.push('━━━━━━━━━━━━━━━━━━');
-                lines.push('请用 Kimi + AgentPPT 生成，谢谢！');
-                return lines.join('\n');
-            }
-
-            // ===== 获取表单数据 =====
-            function getFormData() {
-                return {
-                    name: document.getElementById('name').value.trim(),
-                    topic: document.getElementById('topic').value.trim(),
-                    pages: document.getElementById('pages').value.trim(),
-                    deadline: document.getElementById('deadline').value,
-                    style: document.getElementById('style').value,
-                    notes: document.getElementById('notes').value.trim(),
-                };
-            }
-
-            // ===== 验证表单 =====
-            function validateForm(data) {
+            // ——— Validation ———
+            function validateForm() {
                 var valid = true;
                 var fields = [
-                    { id: 'name', val: data.name, msg: '请输入你的称呼' },
-                    { id: 'topic', val: data.topic, msg: '请输入 PPT 主题' },
-                    { id: 'pages', val: data.pages, msg: '请输入页数要求' },
-                    { id: 'deadline', val: data.deadline, msg: '请选择交付日期' },
+                    { id: 'name', test: function(v) { return v.trim(); }, msg: '请输入你的称呼' },
+                    { id: 'email', test: function(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()); }, msg: '请输入正确的邮箱地址' },
+                    { id: 'topic', test: function(v) { return v.trim(); }, msg: '请输入 PPT 主题' },
+                    { id: 'pages', test: function(v) { var n = parseInt(v); return n >= 1 && n <= 35; }, msg: '请输入 1-35 之间的页数' },
+                    { id: 'deadline', test: function(v) { return v; }, msg: '请选择交付日期' },
                 ];
                 fields.forEach(function(f) {
                     var el = document.getElementById(f.id);
-                    if (!f.val) {
+                    var val = el.value;
+                    if (!f.test(val)) {
                         el.classList.add('error');
                         valid = false;
                     } else {
@@ -578,125 +638,94 @@
                 return valid;
             }
 
-            // ===== 复制到剪贴板 =====
-            function copyToClipboard(text) {
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    return navigator.clipboard.writeText(text).then(function() {
-                        return true;
-                    }).catch(function() {
-                        return fallbackCopy(text);
-                    });
-                }
-                return fallbackCopy(text);
+            // ——— Progress ———
+            var stepUpload = document.getElementById('stepUpload');
+            var stepSubmit = document.getElementById('stepSubmit');
+            var stepEmail = document.getElementById('stepEmail');
+            var progressArea = document.getElementById('progressArea');
+
+            function setStep(stepEl, state) {
+                stepEl.classList.remove('active', 'done');
+                if (state === 'active') stepEl.classList.add('active');
+                if (state === 'done') stepEl.classList.add('done');
             }
 
-            function fallbackCopy(text) {
-                try {
-                    var ta = document.createElement('textarea');
-                    ta.value = text;
-                    ta.style.position = 'fixed';
-                    ta.style.left = '-9999px';
-                    ta.style.top = '-9999px';
-                    document.body.appendChild(ta);
-                    ta.select();
-                    var ok = document.execCommand('copy');
-                    document.body.removeChild(ta);
-                    return Promise.resolve(ok);
-                } catch(e) {
-                    return Promise.resolve(false);
-                }
+            function resetProgress() {
+                progressArea.classList.remove('active');
+                setStep(stepUpload, '');
+                setStep(stepSubmit, '');
+                setStep(stepEmail, '');
             }
 
-            // ===== 下载 TXT =====
-            function downloadTxt(text, filename) {
-                var blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-                var url = URL.createObjectURL(blob);
-                var a = document.createElement('a');
-                a.href = url;
-                a.download = filename || 'PPT需求单.txt';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            }
-
-            // ===== 显示预览 Modal =====
-            function showModal(text) {
-                modalPreview.textContent = text;
-                modalOverlay.classList.add('open');
-            }
-
-            function closeModal() {
-                modalOverlay.classList.remove('open');
-            }
-
-            modalCloseBtn.addEventListener('click', closeModal);
-            modalCopyBtn.addEventListener('click', function() {
-                var text = modalPreview.textContent;
-                copyToClipboard(text).then(function(ok) {
-                    if (ok) {
-                        showToast('已复制到剪贴板，去发给卖家吧！', 'success');
-                    } else {
-                        showToast('复制失败，请手动选中复制', 'error');
-                    }
-                    closeModal();
-                });
-            });
-            modalOverlay.addEventListener('click', function(e) {
-                if (e.target === modalOverlay) closeModal();
-            });
-
-            // ===== 提交 =====
+            // ——— Submit ———
             form.addEventListener('submit', function(e) {
                 e.preventDefault();
-
-                var data = getFormData();
-
-                if (!validateForm(data)) {
-                    showToast('请填写所有必填项', 'error');
+                if (!validateForm()) {
+                    showToast('请检查表单中的错误', 'error');
                     var firstErr = form.querySelector('.error');
                     if (firstErr) firstErr.focus();
                     return;
                 }
 
-                var text = formatRequirement(data);
-                lastGeneratedText = text;
-
-                // 按钮 loading
                 submitBtn.classList.add('loading');
                 submitBtn.disabled = true;
+                resetProgress();
+                progressArea.classList.add('active');
+                setStep(stepUpload, 'active');
 
-                // 先显示预览
-                showModal(text);
-
-                // 尝试复制到剪贴板（后台进行，不影响预览）
-                copyToClipboard(text).then(function(ok) {
-                    submitBtn.classList.remove('loading');
-                    submitBtn.disabled = false;
-                    if (ok) {
-                        // 不额外弹 toast，因为 modal 提供了视觉反馈
-                    } else {
-                        showToast('自动复制失败，请手动点击按钮复制', 'error');
-                    }
-                }).catch(function() {
-                    submitBtn.classList.remove('loading');
-                    submitBtn.disabled = false;
+                var formData = new FormData();
+                formData.append('name', document.getElementById('name').value.trim());
+                formData.append('email', document.getElementById('email').value.trim());
+                formData.append('topic', document.getElementById('topic').value.trim());
+                formData.append('pages', document.getElementById('pages').value);
+                formData.append('deadline', document.getElementById('deadline').value);
+                formData.append('style', document.getElementById('style').value);
+                formData.append('notes', document.getElementById('notes').value.trim());
+                selectedFiles.forEach(function(file) {
+                    formData.append('attachments', file);
                 });
 
-                // 启用下载按钮
-                downloadBtn.disabled = false;
+                fetch('/api/submit', {
+                    method: 'POST',
+                    body: formData,
+                })
+                .then(function(resp) {
+                    if (!resp.ok) return resp.json().then(function(e) { throw new Error(e.error || '提交失败'); });
+                    return resp.json();
+                })
+                .then(function(data) {
+                    setStep(stepUpload, 'done');
+                    setStep(stepSubmit, 'done');
+                    setStep(stepEmail, 'done');
+                    submitBtn.classList.remove('loading');
+                    submitBtn.disabled = false;
+
+                    var email = document.getElementById('email').value.trim();
+                    successMsg.textContent = '你的 PPT 已提交至 Kimi AgentPPT 智能生成！成品将在 1-2 小时内发送到 ' + email;
+                    successModal.classList.add('open');
+
+                    form.reset();
+                    selectedFiles = [];
+                    renderFileList();
+                    progressArea.classList.remove('active');
+                })
+                .catch(function(err) {
+                    setStep(stepUpload, '');
+                    setStep(stepSubmit, '');
+                    setStep(stepEmail, '');
+                    submitBtn.classList.remove('loading');
+                    submitBtn.disabled = false;
+                    progressArea.classList.remove('active');
+                    showToast(err.message || '提交失败，请稍后重试', 'error');
+                });
             });
 
-            // ===== 下载按钮 =====
-            downloadBtn.addEventListener('click', function() {
-                if (!lastGeneratedText) {
-                    showToast('请先生成需求单', 'info');
-                    return;
-                }
-                var data = getFormData();
-                var namePart = data.name ? data.name.replace(/\\s+/g, '_') : '需求单';
-                downloadTxt(lastGeneratedText, 'PPT需求单_' + namePart + '.txt');
-                showToast('文件已下载', 'success');
+            // ——— Modal ———
+            modalOkBtn.addEventListener('click', function() {
+                successModal.classList.remove('open');
+            });
+            successModal.addEventListener('click', function(e) {
+                if (e.target === successModal) successModal.classList.remove('open');
             });
 
         })();

@@ -19,10 +19,7 @@ const KIMI_URL = 'https://www.kimi.com/slides';
 const DEBUG_PORT = 9222;
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '';
-const DOWNLOAD_DIR = process.env.DOWNLOAD_DIR || path.join(
-  process.env.USERPROFILE || 'C:/Users/Administrator',
-  'AppData/Local/Temp/ppt-service/downloads'
-);
+const DOWNLOAD_DIR = process.env.DOWNLOAD_DIR || 'M:/资料';
 
 // ===== 工具函数 =====
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }

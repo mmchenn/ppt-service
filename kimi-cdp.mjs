@@ -14,6 +14,23 @@ import fs from 'fs';
 import path from 'path';
 import http from 'http';
 
+// ===== 尝试加载 .env 文件 =====
+try {
+  const envPath = path.resolve('.env');
+  if (fs.existsSync(envPath)) {
+    const lines = fs.readFileSync(envPath, 'utf-8').split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx === -1) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      const val = trimmed.slice(eqIdx + 1).trim();
+      if (!process.env[key]) process.env[key] = val;
+    }
+  }
+} catch(e) { /* .env 加载失败不影响 */ }
+
 // ===== 配置 =====
 const KIMI_URL = 'https://www.kimi.com/slides';
 const DEBUG_PORT = 9222;
@@ -306,147 +323,199 @@ async function waitAndDownload(Runtime, Page, downloadDir) {
     return { success: false, action: 'timeout' };
   }
 
-  // ---- 阶段 2: 进入编辑器（点击预览卡片） ----
+  // ---- 阶段 2: 进入编辑器 ----
   log('阶段 2: 进入编辑器...', 'step');
+
+  // 点卡片触发 iframe 加载
   await Runtime.evaluate({
-    expression: `(() => {
-      const card = document.querySelector('.preview-card');
-      if (card) { card.click(); return 'card-clicked'; }
-      // 也可能卡片在 clickable 容器内
-      const container = document.querySelector('.ppt-cards');
-      if (container) { container.click(); return 'container-clicked'; }
-      // 或者直接点"去编辑"按钮
-      const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === '去编辑');
-      if (btn) { btn.click(); return 'btn-clicked'; }
-      return 'not-found';
-    })()`,
-    returnByValue: true,
-  });
-  log('已点击预览卡片进入编辑器');
-
-  // 等待编辑器加载（可能打开覆盖层或新页面）
-  await sleep(3000);
-
-  // 检查是否有 iframe（编辑器可能在 iframe 中）
-  const { result: iframeCheck } = await Runtime.evaluate({
-    expression: `(() => {
-      const iframes = document.querySelectorAll('iframe');
-      return Array.from(iframes).filter(f => f.offsetParent !== null).map(f => ({
-        src: (f.src || '').slice(0, 100),
-        w: f.getBoundingClientRect().width,
-        h: f.getBoundingClientRect().height,
-        x: Math.round(f.getBoundingClientRect().x),
-        y: Math.round(f.getBoundingClientRect().y),
-      }));
-    })()`,
-    returnByValue: true,
-  });
-  if (iframeCheck.value && iframeCheck.value.length > 0) {
-    log(`发现 ${iframeCheck.value.length} 个可见 iframe，编辑器可能在 iframe 中`, 'info');
-    iframeCheck.value.forEach(f => log(`  [${f.x},${f.y}] ${f.w}x${f.h} ${f.src.slice(0,60)}`, 'info'));
-  }
-
-  // ---- 阶段 3: 在编辑器中找导出/下载按钮 ----
-  log('阶段 3: 查找导出按钮...', 'step');
-  // 编辑器加载后，右上角会有导出/分享等操作按钮
-  // 可能需要点击一个"更多"按钮展开菜单，或直接有"导出"按钮
-  await sleep(2000);
-
-  const { result: exportSearch } = await Runtime.evaluate({
-    expression: `(() => {
-      const results = [];
-
-      // 搜索所有可见元素中是否包含导出相关文字
-      const allElements = document.querySelectorAll('button, a, [class*="action"], [class*="tool"], [class*="header"] *');
-      allElements.forEach(el => {
-        if (el.offsetParent === null) return;
-        const t = el.textContent.replace(/\\s+/g, ' ').trim();
-        const cls = (el.className || '') + ' ' + (el.getAttribute('role') || '');
-        const r = el.getBoundingClientRect();
-
-        if (r.width < 5 || r.height < 5) return;
-
-        // 匹配导出/下载
-        if (t === '导出' || t === '下载' || t === 'Export' || t === 'Download' ||
-            t.includes('导出') || t.includes('下载') ||
-            cls.includes('export') || cls.includes('download')) {
-          results.push({ text: t.slice(0,20), cls: cls.slice(0,50), x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w) });
-        }
-      });
-
-      return results;
+    expression: `(function() {
+      var card = document.querySelector('.preview-card');
+      if (card) { card.click(); return 'ok'; }
+      return 'no-card';
     })()`,
     returnByValue: true,
   });
 
-  if (exportSearch.value && exportSearch.value.length > 0) {
-    log(`找到 ${exportSearch.value.length} 个导出相关按钮`, 'info');
-    exportSearch.value.forEach(b => log(`  [${b.x},${b.y}] ${b.text} | ${b.cls}`, 'info'));
+  // 等待 iframe 出现
+  log('等待编辑器 iframe 加载...', 'step');
+  await sleep(5000);
 
-    // 点击第一个匹配的
-    const target = exportSearch.value.find(b => b.text === '导出' || b.text.includes('导出')) || exportSearch.value[0];
-    log(`点击: ${target.text}`, 'dl');
+  // 获取 iframe URL
+  const { result: editorUrlResult } = await Runtime.evaluate({
+    expression: `(function() {
+      var f = document.querySelector('iframe.ppt-frame, iframe[src*="kimi.com/ppt"], iframe[class*="ppt"]');
+      return f && f.src ? f.src : null;
+    })()`,
+    returnByValue: true,
+  });
+  var editorUrl = editorUrlResult.value;
+  log(`编辑器 URL: ${editorUrl || '未发现'}`, 'info');
 
-    // 设置下载行为
-    try {
-      await Page.setDownloadBehavior({
-        behavior: 'allow',
-        downloadPath: downloadDir,
-      });
-    } catch(e) {
-      log(`设置下载路径失败: ${e.message} (可能是新标签页)`, 'warn');
-    }
+  var editorConnected = false;
+  if (editorUrl) {
+    log('直接在 iframe 中操作（同源可访问）...', 'step');
 
-    await Runtime.evaluate({
-      expression: `(() => {
-        const el = document.elementFromPoint(${target.x + 5}, ${target.y + 5});
-        if (el) { el.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true})); return 'clicked'; }
-        return 'not-found';
-      })()`,
-      returnByValue: true,
-    });
-    log('已点击导出按钮', 'dl');
-    await sleep(5000);
-  } else {
-    log('当前页面未找到导出按钮', 'warn');
-    log('导出按钮可能在编辑器内部，需要进入编辑器内层', 'info');
+    // 等 iframe 完全加载
+    await sleep(3000);
 
-    // 尝试点击右上角"更多"或"..."的按钮
-    const { result: moreBtns } = await Runtime.evaluate({
-      expression: `(() => {
-        const topRight = [];
-        const all = document.querySelectorAll('button, [role="button"], [class*="icon"], [class*="more"], [class*="menu"]');
-        all.forEach(el => {
-          if (el.offsetParent === null) return;
-          const r = el.getBoundingClientRect();
-          // 右上角区域
-          if (r.y < 80 && r.x > 500 && r.width > 10 && r.height > 10) {
-            topRight.push({
-              t: el.textContent.replace(/\\s+/g,' ').trim().slice(0,20),
-              cls: (el.className || '').slice(0, 50),
-              x: Math.round(r.x), y: Math.round(r.y)
+    // 直接在 iframe 中查找"导出"按钮（div.ppt-button.ppt-button--invert.download-button）
+    log('查找导出按钮...', 'step');
+    var exportBtn = null;
+
+    for (var attempt = 0; attempt < 12; attempt++) {
+      var btnCheck = await Runtime.evaluate({
+        expression: `(function() {
+          try {
+            var f = document.querySelector('iframe.ppt-frame, iframe[class*="ppt"], iframe[src*="/ppt"]');
+            if (!f || !f.contentDocument) return JSON.stringify({error: 'no iframe content'});
+
+            var doc = f.contentDocument;
+            // 找"导出"文字元素
+            var all = doc.querySelectorAll('*');
+            var results = [];
+            all.forEach(function(el) {
+              if (el.offsetParent === null) return;
+              var t = el.textContent.replace(/\\s+/g, ' ').trim();
+              if (t === '导出') {
+                var r = el.getBoundingClientRect();
+                if (r.width > 10 && r.height > 10) {
+                  results.push(JSON.stringify({ text: t, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), tag: el.tagName, cls: el.className.slice(0, 40) }));
+                }
+              }
             });
+            if (results.length > 0) return '[' + results.join(',') + ']';
+            return JSON.stringify({ note: 'waiting', buttons: doc.body.innerText.slice(0, 100) });
+          } catch(e) {
+            return JSON.stringify({ error: e.message });
           }
+        })()`,
+        returnByValue: true,
+      });
+
+      var result = JSON.parse(btnCheck.result.value);
+      if (Array.isArray(result) && result.length > 0) {
+        exportBtn = result[0];
+        log(`✅ 找到"导出"按钮 (第 ${attempt+1} 次): [${exportBtn.x},${exportBtn.y}] ${exportBtn.text}`, 'info');
+        editorConnected = true;
+
+        // 设置下载目录（在主页面设置即可）
+        try {
+          await Page.setDownloadBehavior({ behavior: 'allow', downloadPath: downloadDir });
+          log(`设置下载路径: ${downloadDir}`, 'dl');
+        } catch(e) {
+          log(`设置下载失败: ${e.message}`, 'warn');
+        }
+
+        // 通过 iframe contentDocument 点击导出按钮
+        await Runtime.evaluate({
+          expression: `(function() {
+            try {
+              var f = document.querySelector('iframe.ppt-frame, iframe[class*="ppt"], iframe[src*="/ppt"]');
+              if (!f || !f.contentDocument) return 'no-iframe';
+              var el = f.contentDocument.elementFromPoint(${exportBtn.x + Math.floor(exportBtn.w/2)}, ${exportBtn.y + Math.floor(exportBtn.h/2)});
+              if (!el) return 'no-element';
+              el.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,view:f.contentWindow}));
+              return 'clicked';
+            } catch(e) { return 'error: ' + e.message; }
+          })()`,
+          returnByValue: true,
         });
-        return topRight;
-      })()`,
-      returnByValue: true,
-    });
-    if (moreBtns.value && moreBtns.value.length > 0) {
-      log('右上角元素:', 'info');
-      moreBtns.value.forEach(b => log(`  [${b.x},${b.y}] ${b.t} | ${b.cls}`, 'info'));
+        log('已点击导出按钮，等待弹窗加载...', 'dl');
+        await sleep(3000);
+
+        // 导出后会弹出窗口包含"选择目录直接下载"和"直接下载"按钮
+        log('查找下载弹窗...', 'step');
+        for (var popupAttempt = 0; popupAttempt < 10; popupAttempt++) {
+          var popupCheck = await Runtime.evaluate({
+            expression: `(function() {
+              try {
+                var f = document.querySelector('iframe.ppt-frame, iframe[class*="ppt"], iframe[src*="/ppt"]');
+                if (!f || !f.contentDocument) return JSON.stringify({error: 'no iframe'});
+                var doc = f.contentDocument;
+                var all = doc.querySelectorAll('*');
+                var results = [];
+                all.forEach(function(el) {
+                  if (el.offsetParent === null) return;
+                  var t = el.textContent.replace(/\\s+/g, ' ').trim();
+                  if (t === '直接下载') {
+                    var r = el.getBoundingClientRect();
+                    results.push({ text: t, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) });
+                  }
+                });
+                return JSON.stringify(results);
+              } catch(e) { return JSON.stringify({error: e.message}); }
+            })()`,
+            returnByValue: true,
+          });
+
+          var popupData = JSON.parse(popupCheck.result.value);
+          if (Array.isArray(popupData) && popupData.length > 0) {
+            log(`✅ 找到"直接下载"按钮: [${popupData[0].x},${popupData[0].y}]`, 'info');
+            // 点击直接下载
+            await Runtime.evaluate({
+              expression: `(function() {
+                try {
+                  var f = document.querySelector('iframe.ppt-frame, iframe[class*="ppt"], iframe[src*="/ppt"]');
+                  if (!f || !f.contentDocument) return 'no-iframe';
+                  var el = f.contentDocument.elementFromPoint(${popupData[0].x + 5}, ${popupData[0].y + 5});
+                  if (!el) return 'no-element';
+                  el.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,view:f.contentWindow}));
+                  return 'done';
+                } catch(e) { return 'error: ' + e.message; }
+              })()`,
+              returnByValue: true,
+            });
+            log('已点击直接下载，等待浏览器保存文件...', 'dl');
+            await sleep(8000);
+            // 直接跳出所有循环
+            exportBtn.clicked = true;
+            break;
+          }
+          await sleep(2000);
+        }
+        // 如果弹窗点击成功，直接跳出外层循环
+        if (exportBtn && exportBtn.clicked) break;
+      }
+
+      if (attempt % 3 === 0 && attempt > 0) {
+        log(`等待加载中... (${attempt+1}/12)`, 'info');
+      }
+      await sleep(2000);
+    }
+
+    if (!exportBtn) {
+      log('⚠️ 未找到导出按钮', 'warn');
     }
   }
 
-  // ---- 阶段 4: 等待文件下载 ----
-  log('阶段 4: 等待文件保存...', 'step');
-  const fileInfo = await findDownloadedFile(downloadDir, 15000);
+  if (!editorConnected) {
+    log('未连接编辑器，跳过下载', 'warn');
+  }
+
+  // ---- 阶段 4: 等待文件保存（最长 60 秒） ----
+  log('阶段 4: 等待文件保存（最长 60 秒）...', 'step');
+  var fileInfo = await findDownloadedFile(downloadDir, 60000);
 
   if (fileInfo) {
     log(`✅ PPT 已保存到: ${fileInfo.filePath}`, 'dl');
   } else {
-    log('⚠️ 未检测到下载文件，可能还未完成', 'warn');
-    log(`  检查目录: ${downloadDir}`, 'info');
+    log('⚠️ 未检测到下载文件', 'warn');
+    // 直接扫描目录，找最近修改的 pptx
+    log('扫描目录找最新 PPTX...', 'info');
+    try {
+      const pptxFiles = fs.readdirSync(downloadDir)
+        .filter(f => f.endsWith('.pptx'))
+        .map(f => ({ name: f, path: path.join(downloadDir, f), mtime: fs.statSync(path.join(downloadDir, f)).mtimeMs }))
+        .sort((a, b) => b.mtime - a.mtime);
+      if (pptxFiles.length > 0) {
+        log(`✅ 最近文件: ${pptxFiles[0].name} (${new Date(pptxFiles[0].mtime).toLocaleTimeString()})`, 'dl');
+        log(`  路径: ${pptxFiles[0].path}`, 'dl');
+        const fStat = fs.statSync(pptxFiles[0].path);
+        fileInfo = { filePath: pptxFiles[0].path, fileName: pptxFiles[0].name, fileSize: fStat.size };
+      }
+    } catch(e) {
+      log(`扫描目录失败: ${e.message}`, 'warn');
+    }
   }
 
   return { success: true, filePath: fileInfo?.filePath || null };
@@ -459,37 +528,37 @@ async function findDownloadedFile(downloadDir, timeout = 30000) {
 
   fs.mkdirSync(downloadDir, { recursive: true });
 
-  const knownFiles = new Set();
-  // 记录已有的文件
+  // 记录已有的文件修改时间
+  const knownMtimes = {};
   try {
-    fs.readdirSync(downloadDir).forEach(f => knownFiles.add(f));
+    fs.readdirSync(downloadDir).forEach(function(f) {
+      try {
+        const stat = fs.statSync(path.join(downloadDir, f));
+        knownMtimes[f] = stat.mtimeMs;
+      } catch(e) {}
+    });
   } catch(e) {}
 
   while (Date.now() - start < timeout) {
     await sleep(1000);
     try {
       const files = fs.readdirSync(downloadDir);
-      const newFiles = files.filter(f => !knownFiles.has(f) && !f.endsWith('.crdownload') && !f.endsWith('.tmp'));
-      if (newFiles.length > 0) {
-        // 按修改时间排序取最新的
-        const sorted = newFiles.map(f => ({
-          name: f,
-          path: path.join(downloadDir, f),
-          mtime: fs.statSync(path.join(downloadDir, f)).mtimeMs,
-        })).sort((a, b) => b.mtime - a.mtime);
+      const pptFiles = files.filter(f => !f.endsWith('.crdownload') && !f.endsWith('.tmp'));
 
-        const latest = sorted[0];
-        const size = fs.statSync(latest.path).size;
-        log(`发现新文件: ${latest.name} (${(size/1024).toFixed(1)}KB)`, 'dl');
-
-        // 等文件写完（可能还在下载中）
-        await sleep(2000);
-
-        return { filePath: latest.path, fileName: latest.name, fileSize: size };
+      for (const f of pptFiles) {
+        const filePath = path.join(downloadDir, f);
+        try {
+          const stat = fs.statSync(filePath);
+          // 文件是新出现的，或修改时间变了（被覆盖更新）
+          if (!knownMtimes[f] || stat.mtimeMs > knownMtimes[f]) {
+            log(`发现文件变化: ${f} (${(stat.size/1024).toFixed(1)}KB)`, 'dl');
+            knownMtimes[f] = stat.mtimeMs;
+            await sleep(2000); // 等写入完成
+            return { filePath, fileName: f, fileSize: stat.size };
+          }
+        } catch(e) {}
       }
-    } catch(e) {
-      // 文件夹可能还没创建
-    }
+    } catch(e) {}
   }
   log(`在 ${timeout/1000}s 内未发现新下载文件`, 'warn');
   return null;
@@ -507,60 +576,71 @@ async function resetEditor(Runtime, Input) {
   await sleep(300);
 }
 
-// ===== 发送邮件（Resend API） =====
+// ===== 发送邮件（Resend API）- 使用 JSON 格式 + separate attachment upload =====
 async function sendEmailWithAttachment(apiKey, to, subject, htmlContent, attachmentPath) {
   if (!apiKey) {
     log('未设置 RESEND_API_KEY，跳过邮件发送', 'warn');
     return false;
   }
 
-  const boundary = '----' + Date.now().toString(36);
-
-  // 构建 multipart body
-  const parts = [];
-
-  // 需要发邮件的收件人列表
   const recipients = typeof to === 'string' ? [to] : to;
 
-  // 先发不带附件的部分 (from, to, subject, html)
-  let body = '';
-  body += `--${boundary}\r\n`;
-  body += 'Content-Type: application/json; charset="UTF-8"\r\n\r\n';
-  body += JSON.stringify({
-    from: 'PPT 智能生成 <noreply@ppt-service.pages.dev>',
+  log(`发送邮件到 ${recipients.join(', ')}...`, 'mail');
+
+  // Resend 支持 JSON 格式的附件：先上传文件获取 ID，再引用
+  let attachmentId = null;
+
+  if (attachmentPath && fs.existsSync(attachmentPath)) {
+    try {
+      const fileName = path.basename(attachmentPath);
+      const fileBuffer = fs.readFileSync(attachmentPath);
+
+      log(`上传附件到 Resend: ${fileName} (${(fileBuffer.length/1024).toFixed(1)}KB)`, 'mail');
+
+      // Resend 使用 multipart/form-data 上传附件获取 attachment ID
+      const formData = new FormData();
+      const blob = new Blob([fileBuffer]);
+      formData.append('file', blob, fileName);
+
+      const uploadResp = await fetch('https://api.resend.com/attachments', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+        body: formData,
+      });
+
+      if (uploadResp.ok) {
+        const uploadResult = await uploadResp.json();
+        attachmentId = uploadResult.id;
+        log(`附件上传成功: ${attachmentId}`, 'mail');
+      } else {
+        const errText = await uploadResp.text();
+        log(`附件上传失败: ${errText}`, 'warn');
+      }
+    } catch(e) {
+      log(`附件上传异常: ${e.message}`, 'warn');
+    }
+  }
+
+  // 发送邮件（JSON 格式）
+  const emailPayload = {
+    from: process.env.EMAIL_FROM || 'PPT 智能生成 <18038631469@163.com>',
     to: recipients,
     subject: subject,
     html: htmlContent,
-  }) + '\r\n';
+  };
 
-  // 如果有附件
-  if (attachmentPath && fs.existsSync(attachmentPath)) {
-    const fileName = path.basename(attachmentPath);
-    const fileBuffer = fs.readFileSync(attachmentPath);
-    const fileBase64 = fileBuffer.toString('base64');
-    const mimeType = fileName.endsWith('.pptx') ? 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-      : fileName.endsWith('.ppt') ? 'application/vnd.ms-powerpoint'
-      : 'application/octet-stream';
-
-    body += `--${boundary}\r\n`;
-    body += `Content-Type: ${mimeType}\r\n`;
-    body += 'Content-Disposition: attachment; filename="' + fileName + '"\r\n';
-    body += 'Content-Transfer-Encoding: base64\r\n\r\n';
-    body += fileBase64 + '\r\n';
+  if (attachmentId) {
+    emailPayload.attachments = [{ id: attachmentId }];
   }
-
-  body += `--${boundary}--\r\n`;
-
-  log(`发送邮件到 ${recipients.join(', ')}...`, 'mail');
 
   try {
     const resp = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': `multipart/mixed; boundary="${boundary}"`,
+        'Content-Type': 'application/json',
       },
-      body: body,
+      body: JSON.stringify(emailPayload),
     });
 
     if (resp.ok) {

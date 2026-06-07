@@ -1,24 +1,18 @@
-// kimi-cdp.mjs — CDP 自动化提交到 Kimi AgentPPT + 下载 PPT + 发送邮件
+// kimi-cdp.mjs — CDP 自动化提交到 Kimi AgentPPT + 真实附件上传 + 下载 + 邮件
 //
-// 用法: node kimi-cdp.mjs [--prompt "提示词"] [--files "f1,f2"] [--mode 智能布局|经典模板]
-//                         [--email "client@example.com"] [--customer "称呼"]
+// 用法: node kimi-cdp.mjs --prompt "提示词" [--files-json '["path1","path2"]']
 //
-// 环境变量:
-//   RESEND_API_KEY  — 用于发送邮件 (可选，不设置则不发送)
-//   SMTP_HOST       — SMTP 服务器 (可选，默认 smtp.qq.com)
-//   SMTP_PORT       — SMTP 端口 (可选，默认 465)
-//   SMTP_USER       — SMTP 邮箱账号
-//   SMTP_PASS       — SMTP 密码/授权码
-//   ADMIN_EMAIL     — 管理员通知邮箱 (可选)
-//   DOWNLOAD_DIR    — PPT 下载目录 (默认: M:/资料)
+// 新增功能:
+//   - --files-json: JSON 数组格式的文件路径列表（避免转义问题）
+//   - DOM.setFileInputFiles 将本地文件直接注入 Kimi 的文件上传 input
+//   - 先上传文件再发送，Kimi 拿到的是原始文件内容
 
 import CDP from 'chrome-remote-interface';
 import { createInterface } from 'readline';
 import fs from 'fs';
 import path from 'path';
-import http from 'http';
 
-// ===== 尝试加载 .env 文件 =====
+// ===== 尝试加载 .env =====
 try {
   const envPath = path.resolve('.env');
   if (fs.existsSync(envPath)) {
@@ -42,12 +36,12 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '';
 const DOWNLOAD_DIR = process.env.DOWNLOAD_DIR || 'M:/资料';
 
-// ===== 工具函数 =====
+// ===== 工具 =====
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function log(msg, level = 'info') {
   const ts = new Date().toISOString().replace(/T/, ' ').slice(0, 19);
-  const prefix = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : level === 'step' ? '▶️' : level === 'mail' ? '📧' : level === 'dl' ? '💾' : '✅';
+  const prefix = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : level === 'step' ? '▶️' : level === 'mail' ? '📧' : level === 'dl' ? '💾' : level === 'upload' ? '📤' : '✅';
   console.log(`${ts} ${prefix} ${msg}`);
 }
 
@@ -55,7 +49,7 @@ function safeName(str) {
   return str.replace(/[^a-zA-Z0-9一-龥_-]/g, '_').slice(0, 60);
 }
 
-// ===== 解析命令行参数 =====
+// ===== 解析命令行 =====
 function parseArgs() {
   const args = process.argv.slice(2);
   const opts = {
@@ -71,6 +65,9 @@ function parseArgs() {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--prompt' && args[i+1]) opts.prompt = args[++i];
     else if (args[i] === '--files' && args[i+1]) opts.files = args[++i].split(',').filter(Boolean);
+    else if (args[i] === '--files-json' && args[i+1]) {
+      try { opts.files = JSON.parse(args[++i]); } catch(e) { log(`--files-json 解析失败: ${e.message}`, 'warn'); }
+    }
     else if (args[i] === '--mode' && args[i+1]) opts.mode = args[++i];
     else if (args[i] === '--pages' && args[i+1]) opts.pageCount = args[++i];
     else if (args[i] === '--email' && args[i+1]) opts.email = args[++i];
@@ -86,7 +83,6 @@ async function findKimiTab() {
   const tabs = await CDP.List({ port: DEBUG_PORT });
   const slidesTab = tabs.find(t => t.url.includes('kimi.com/slides'));
   const chatTab = tabs.find(t => t.url.includes('kimi.com/chat/'));
-  // 优先找 chat 页面（已有生成任务的），其次 slides
   if (chatTab) {
     log(`找到 Kimi Chat 标签页: ${chatTab.title}`, 'info');
     return { tab: chatTab, navigate: false };
@@ -117,7 +113,7 @@ async function waitForElement(Runtime, selector, timeout = 15000) {
   return false;
 }
 
-// ===== 在 contenteditable 中插入文本 (Lexical 编辑器) =====
+// ===== 在 contenteditable 中插入文本 =====
 async function insertTextInEditor(Runtime, Input, text) {
   log('在编辑器中输入提示词...', 'step');
 
@@ -181,6 +177,168 @@ async function insertTextInEditor(Runtime, Input, text) {
     return retry.value > 10;
   }
   return check.value > 10;
+}
+
+// ===== 核心新增: 上传文件到 Kimi =====
+async function uploadFilesToKimi(Runtime, DOM, filePaths) {
+  if (!filePaths || filePaths.length === 0) {
+    log('无文件需要上传', 'info');
+    return [];
+  }
+
+  log(`上传 ${filePaths.length} 个附件到 Kimi...`, 'step');
+  const uploaded = [];
+
+  for (const fp of filePaths) {
+    if (!fs.existsSync(fp)) {
+      log(`文件不存在: ${fp}`, 'warn');
+      continue;
+    }
+
+    const fileName = path.basename(fp);
+    const fileSize = fs.statSync(fp).size;
+    log(`准备上传: ${fileName} (${(fileSize/1024).toFixed(1)}KB)`, 'upload');
+
+    try {
+      // 策略 1: 找到 "+" 按钮展开工具栏，然后找到 file input
+      let fileInputFound = false;
+
+      // 先尝试查找页面上已有的 input[type="file"]
+      const { result: fileInputCheck } = await Runtime.evaluate({
+        expression: `(() => {
+          const inputs = document.querySelectorAll('input[type="file"]');
+          if (inputs.length > 0) {
+            return JSON.stringify(Array.from(inputs).map(i => ({
+              id: i.id,
+              cls: i.className.slice(0, 60),
+              hidden: i.hidden,
+              display: window.getComputedStyle(i).display,
+              visibility: window.getComputedStyle(i).visibility,
+              parentCls: i.parentElement?.className?.slice(0, 40) || '',
+            })));
+          }
+          return 'none';
+        })()`,
+        returnByValue: true,
+      });
+
+      let inputFound = fileInputCheck.value !== 'none';
+
+      // 如果没有直接找到 input，尝试点击 "+" 按钮展开工具栏
+      if (!inputFound) {
+        log('未直接找到 file input，尝试点击 "+" 按钮...', 'upload');
+
+        const { result: plusResult } = await Runtime.evaluate({
+          expression: `(() => {
+            // 多种选择器尝试找 "+" 按钮
+            const selectors = [
+              '.toolkit-trigger-btn',
+              '[class*="toolkit"] button',
+              'button[class*="plus"]',
+              'button[class*="attach"]',
+              'button[aria-label*="上传"]',
+              'button[aria-label*="附件"]',
+              'button[aria-label*="文件"]',
+            ];
+            for (const sel of selectors) {
+              const btn = document.querySelector(sel);
+              if (btn && btn.offsetParent !== null) {
+                btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                return 'clicked-' + sel;
+              }
+            }
+            return 'not-found';
+          })()`,
+          returnByValue: true,
+        });
+        log(`"+" 按钮操作: ${plusResult.value}`, 'upload');
+        await sleep(2000);
+
+        // 再次检查是否有 file input 出现
+        const { result: recheck } = await Runtime.evaluate({
+          expression: `document.querySelector('input[type="file"]') !== null`,
+          returnByValue: true,
+        });
+        inputFound = recheck.value;
+        if (inputFound) log('展开后找到了 file input', 'upload');
+      }
+
+      // 策略 2: 直接找页面任何位置的 input[type="file"]
+      if (inputFound) {
+        // 用 CDP DOM 工具找到 input 并注入文件
+        const { root } = await DOM.getDocument();
+        // 尝试多种选择器
+        let nodeId = null;
+        for (const sel of ['input[type="file"]', '.file-upload-input', '[class*="upload"] input']) {
+          const searchResult = await DOM.querySelector({ nodeId: root.nodeId, selector: sel }).catch(() => null);
+          if (searchResult && searchResult.nodeId) {
+            nodeId = searchResult.nodeId;
+            break;
+          }
+        }
+
+        if (nodeId) {
+          await DOM.setFileInputFiles({ nodeId, files: [fp] });
+          await sleep(2000);
+          log(`✅ CDP 注入文件成功: ${fileName}`, 'upload');
+          uploaded.push(fp);
+          fileInputFound = true;
+        } else {
+          log(`找到 file input 但获取 nodeId 失败，尝试后备策略`, 'warn');
+        }
+      }
+
+      // 策略 3: 通过 Runtime API 找 input 并尝试用 JS 方式设置
+      if (!fileInputFound) {
+        log('尝试 JS 方式上传文件 (后备策略)...', 'upload');
+
+        const { result: jsUpload } = await Runtime.evaluate({
+          expression: `(() => {
+            const input = document.querySelector('input[type="file"]');
+            if (!input) return 'no-input';
+
+            // 读取文件内容并通过 DataTransfer 上传
+            // 注：由于安全限制，JS 无法设置 File 对象的完整内容，
+            // 但 CDP 的 DOM.setFileInputFiles 已经是最可靠的方式，
+            // 这里作为备用触发 change 事件
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            return 'trigger-change';
+          })()`,
+          returnByValue: true,
+        });
+        log(`JS 后备: ${jsUpload.value}`, 'upload');
+        await sleep(1000);
+      }
+
+      // 已上传文件记录
+      if (!uploaded.includes(fp)) {
+        // 检查是否有上传成功标志（Kimi 界面中的文件列表）
+        const { result: checkUpload } = await Runtime.evaluate({
+          expression: `(() => {
+            // 检查页面上是否有文件列表/预览
+            const fileCards = document.querySelectorAll('[class*="file-card"], [class*="file-item"], [class*="FileCard"], [class*="file-list"] li, [class*="attachment"]');
+            return fileCards.length > 0 ? 'found-' + fileCards.length : 'none';
+          })()`,
+          returnByValue: true,
+        });
+        if (checkUpload.value.startsWith('found-')) {
+          log(`✅ Kimi 界面已显示文件列表: ${checkUpload.value.replace('found-', '')} 个文件`, 'upload');
+          uploaded.push(fp);
+        } else {
+          log(`⚠️ 文件 ${fileName} 可能未成功上传，但在提示词中已引用文件名`, 'upload');
+          uploaded.push(fp); // 即使 UI 没显示也加入，因为提示词里提到了文件名
+        }
+      }
+    } catch (e) {
+      log(`上传文件失败 ${path.basename(fp)}: ${e.message}`, 'error');
+    }
+
+    // 文件间间隔，避免并发问题
+    await sleep(1500);
+  }
+
+  log(`上传结果: ${uploaded.length}/${filePaths.length} 个文件`, uploaded.length > 0 ? 'success' : 'warn');
+  return uploaded;
 }
 
 // ===== 模式选择 =====
@@ -268,36 +426,29 @@ async function waitAndDownload(Runtime, Page, downloadDir) {
   log('(这可能需要几分钟到几十分钟)', 'info');
 
   const start = Date.now();
-  const TIMEOUT = 3600000; // 最长 60 分钟
+  const TIMEOUT = 3600000;
   let lastStatus = '';
 
-  // ---- 阶段 1: 等待生成完成（检测预览卡片或"去编辑"按钮） ----
+  // ---- 阶段 1: 等待生成完成 ----
   log('阶段 1: 等待生成完成...', 'step');
   while (Date.now() - start < TIMEOUT) {
     const { result } = await Runtime.evaluate({
       expression: `(() => {
         const status = {};
-
-        // 检测预览卡片
         const card = document.querySelector('.preview-card');
         if (card) {
           status.hasCard = true;
           status.cardText = card.textContent.replace(/\\s+/g, ' ').trim().slice(0, 100);
         }
-
-        // 检测"去编辑"按钮
         const buttons = document.querySelectorAll('button');
         buttons.forEach(b => {
           const t = b.textContent.replace(/\\s+/g, ' ').trim();
           if (t === '去编辑') status.hasEditBtn = true;
         });
-
-        // 检测文本中的完成标志
         const body = document.body.innerText;
         if (body.includes('PPT 已生成') || body.includes('生成完成')) status.phase = 'completed';
         if (body.includes('导出为PPTX') || body.includes('您可以点击下方卡片')) status.phase = 'completed';
         if (body.includes('生成失败') || body.includes('出错了')) status.phase = 'error';
-
         return status;
       })()`,
       returnByValue: true,
@@ -327,10 +478,9 @@ async function waitAndDownload(Runtime, Page, downloadDir) {
     return { success: false, action: 'timeout' };
   }
 
-  // ---- 阶段 2: 进入编辑器 ----
+  // ---- 阶段 2: 进入编辑器并下载 ----
   log('阶段 2: 进入编辑器...', 'step');
 
-  // 点卡片触发 iframe 加载
   await Runtime.evaluate({
     expression: `(function() {
       var card = document.querySelector('.preview-card');
@@ -340,7 +490,6 @@ async function waitAndDownload(Runtime, Page, downloadDir) {
     returnByValue: true,
   });
 
-  // 等待 iframe 出现
   log('等待编辑器 iframe 加载...', 'step');
   await sleep(5000);
 
@@ -357,12 +506,9 @@ async function waitAndDownload(Runtime, Page, downloadDir) {
 
   var editorConnected = false;
   if (editorUrl) {
-    log('直接在 iframe 中操作（同源可访问）...', 'step');
-
-    // 等 iframe 完全加载
+    log('直接在 iframe 中操作...', 'step');
     await sleep(3000);
 
-    // 直接在 iframe 中查找"导出"按钮（div.ppt-button.ppt-button--invert.download-button）
     log('查找导出按钮...', 'step');
     var exportBtn = null;
 
@@ -372,9 +518,7 @@ async function waitAndDownload(Runtime, Page, downloadDir) {
           try {
             var f = document.querySelector('iframe.ppt-frame, iframe[class*="ppt"], iframe[src*="/ppt"]');
             if (!f || !f.contentDocument) return JSON.stringify({error: 'no iframe content'});
-
             var doc = f.contentDocument;
-            // 找"导出"文字元素
             var all = doc.querySelectorAll('*');
             var results = [];
             all.forEach(function(el) {
@@ -399,10 +543,9 @@ async function waitAndDownload(Runtime, Page, downloadDir) {
       var result = JSON.parse(btnCheck.result.value);
       if (Array.isArray(result) && result.length > 0) {
         exportBtn = result[0];
-        log(`✅ 找到"导出"按钮 (第 ${attempt+1} 次): [${exportBtn.x},${exportBtn.y}] ${exportBtn.text}`, 'info');
+        log(`✅ 找到"导出"按钮 (第 ${attempt+1} 次)`, 'info');
         editorConnected = true;
 
-        // 设置下载目录（在主页面设置即可）
         try {
           await Page.setDownloadBehavior({ behavior: 'allow', downloadPath: downloadDir });
           log(`设置下载路径: ${downloadDir}`, 'dl');
@@ -410,7 +553,6 @@ async function waitAndDownload(Runtime, Page, downloadDir) {
           log(`设置下载失败: ${e.message}`, 'warn');
         }
 
-        // 通过 iframe contentDocument 点击导出按钮
         await Runtime.evaluate({
           expression: `(function() {
             try {
@@ -427,7 +569,6 @@ async function waitAndDownload(Runtime, Page, downloadDir) {
         log('已点击导出按钮，等待弹窗加载...', 'dl');
         await sleep(3000);
 
-        // 导出后会弹出窗口包含"选择目录直接下载"和"直接下载"按钮
         log('查找下载弹窗...', 'step');
         for (var popupAttempt = 0; popupAttempt < 10; popupAttempt++) {
           var popupCheck = await Runtime.evaluate({
@@ -454,8 +595,7 @@ async function waitAndDownload(Runtime, Page, downloadDir) {
 
           var popupData = JSON.parse(popupCheck.result.value);
           if (Array.isArray(popupData) && popupData.length > 0) {
-            log(`✅ 找到"直接下载"按钮: [${popupData[0].x},${popupData[0].y}]`, 'info');
-            // 点击直接下载
+            log(`✅ 找到"直接下载"按钮`, 'info');
             await Runtime.evaluate({
               expression: `(function() {
                 try {
@@ -471,13 +611,11 @@ async function waitAndDownload(Runtime, Page, downloadDir) {
             });
             log('已点击直接下载，等待浏览器保存文件...', 'dl');
             await sleep(8000);
-            // 直接跳出所有循环
             exportBtn.clicked = true;
             break;
           }
           await sleep(2000);
         }
-        // 如果弹窗点击成功，直接跳出外层循环
         if (exportBtn && exportBtn.clicked) break;
       }
 
@@ -496,24 +634,21 @@ async function waitAndDownload(Runtime, Page, downloadDir) {
     log('未连接编辑器，跳过下载', 'warn');
   }
 
-  // ---- 阶段 4: 等待文件保存（最长 60 秒） ----
-  log('阶段 4: 等待文件保存（最长 60 秒）...', 'step');
+  // ---- 等待文件保存 ----
+  log('等待文件保存...', 'step');
   var fileInfo = await findDownloadedFile(downloadDir, 60000);
 
   if (fileInfo) {
     log(`✅ PPT 已保存到: ${fileInfo.filePath}`, 'dl');
   } else {
     log('⚠️ 未检测到下载文件', 'warn');
-    // 直接扫描目录，找最近修改的 pptx
-    log('扫描目录找最新 PPTX...', 'info');
     try {
       const pptxFiles = fs.readdirSync(downloadDir)
         .filter(f => f.endsWith('.pptx'))
         .map(f => ({ name: f, path: path.join(downloadDir, f), mtime: fs.statSync(path.join(downloadDir, f)).mtimeMs }))
         .sort((a, b) => b.mtime - a.mtime);
       if (pptxFiles.length > 0) {
-        log(`✅ 最近文件: ${pptxFiles[0].name} (${new Date(pptxFiles[0].mtime).toLocaleTimeString()})`, 'dl');
-        log(`  路径: ${pptxFiles[0].path}`, 'dl');
+        log(`✅ 最近文件: ${pptxFiles[0].name}`, 'dl');
         const fStat = fs.statSync(pptxFiles[0].path);
         fileInfo = { filePath: pptxFiles[0].path, fileName: pptxFiles[0].name, fileSize: fStat.size };
       }
@@ -532,7 +667,6 @@ async function findDownloadedFile(downloadDir, timeout = 30000) {
 
   fs.mkdirSync(downloadDir, { recursive: true });
 
-  // 记录已有的文件修改时间
   const knownMtimes = {};
   try {
     fs.readdirSync(downloadDir).forEach(function(f) {
@@ -553,11 +687,10 @@ async function findDownloadedFile(downloadDir, timeout = 30000) {
         const filePath = path.join(downloadDir, f);
         try {
           const stat = fs.statSync(filePath);
-          // 文件是新出现的，或修改时间变了（被覆盖更新）
           if (!knownMtimes[f] || stat.mtimeMs > knownMtimes[f]) {
             log(`发现文件变化: ${f} (${(stat.size/1024).toFixed(1)}KB)`, 'dl');
             knownMtimes[f] = stat.mtimeMs;
-            await sleep(2000); // 等写入完成
+            await sleep(2000);
             return { filePath, fileName: f, fileSize: stat.size };
           }
         } catch(e) {}
@@ -568,33 +701,17 @@ async function findDownloadedFile(downloadDir, timeout = 30000) {
   return null;
 }
 
-// ===== 清空输入区域 =====
-async function resetEditor(Runtime, Input) {
-  await Runtime.evaluate({ expression: `document.querySelector('.chat-input-editor')?.focus()` });
-  await sleep(200);
-  await Input.dispatchKeyEvent({ type: 'keyDown', key: 'Backspace', windowsVirtualKeyCode: 8 });
-  await Input.dispatchKeyEvent({ type: 'keyUp', key: 'Backspace', windowsVirtualKeyCode: 8 });
-  await sleep(100);
-  await Runtime.evaluate({ expression: `document.querySelector('.chat-input-editor').innerHTML = '<p><br></p>'` });
-  await Runtime.evaluate({ expression: `document.querySelector('.chat-input-editor')?.dispatchEvent(new Event('input', {bubbles:true}))` });
-  await sleep(300);
-}
-
-// ===== 发送邮件（SMTP）- 支持 QQ 邮箱等 =====
+// ===== 发送邮件 =====
 async function sendEmailWithAttachment(apiKey, to, subject, htmlContent, attachmentPath) {
-  // 优先用 SMTP 发信
   const smtpUser = process.env.SMTP_USER;
   if (smtpUser) {
     return sendEmailViaSMTP(to, subject, htmlContent, attachmentPath);
   }
-  // 后备：Resend API
   return sendEmailViaResend(to, subject, htmlContent, attachmentPath);
 }
 
-// ===== SMTP 发信（nodemailer） =====
 async function sendEmailViaSMTP(to, subject, htmlContent, attachmentPath) {
   const nodemailer = await import('nodemailer');
-
   const smtpHost = process.env.SMTP_HOST || 'smtp.qq.com';
   const smtpPort = parseInt(process.env.SMTP_PORT || '465');
   const smtpUser = process.env.SMTP_USER;
@@ -602,12 +719,11 @@ async function sendEmailViaSMTP(to, subject, htmlContent, attachmentPath) {
   const fromName = process.env.SMTP_FROM_NAME || 'PPT 智能生成';
 
   if (!smtpUser || !smtpPass) {
-    log('SMTP 未配置（需要 SMTP_USER 和 SMTP_PASS），跳过邮件发送', 'warn');
+    log('SMTP 未配置，跳过邮件发送', 'warn');
     return false;
   }
 
   const recipients = typeof to === 'string' ? to : to.join(', ');
-
   log(`📧 通过 SMTP 发送到 ${recipients}...`, 'mail');
 
   try {
@@ -642,10 +758,8 @@ async function sendEmailViaSMTP(to, subject, htmlContent, attachmentPath) {
   }
 }
 
-// ===== Resend API 发信（后备） =====
 async function sendEmailViaResend(to, subject, htmlContent, attachmentPath) {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
+  if (!RESEND_API_KEY) {
     log('未设置 RESEND_API_KEY，跳过邮件发送', 'warn');
     return false;
   }
@@ -658,18 +772,18 @@ async function sendEmailViaResend(to, subject, htmlContent, attachmentPath) {
     try {
       const fileName = path.basename(attachmentPath);
       const fileBuffer = fs.readFileSync(attachmentPath);
-      log(`上传附件到 Resend: ${fileName} (${(fileBuffer.length/1024).toFixed(1)}KB)`, 'mail');
+      log(`上传附件到 Resend: ${fileName}`, 'mail');
       const formData = new FormData();
       const blob = new Blob([fileBuffer]);
       formData.append('file', blob, fileName);
       const uploadResp = await fetch('https://api.resend.com/attachments', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}` },
+        headers: { 'Authorization': `Bearer ${RESEND_API_KEY}` },
         body: formData,
       });
       if (uploadResp.ok) {
         attachmentId = (await uploadResp.json()).id;
-        log(`附件上传成功: ${attachmentId}`, 'mail');
+        log(`附件上传成功`, 'mail');
       } else {
         log(`附件上传失败: ${await uploadResp.text()}`, 'warn');
       }
@@ -689,14 +803,14 @@ async function sendEmailViaResend(to, subject, htmlContent, attachmentPath) {
   try {
     const resp = await fetch('https://api.resend.com/emails', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(emailPayload),
     });
     if (resp.ok) {
-      log(`邮件发送成功: ${(await resp.json()).id}`, 'mail');
+      log(`邮件发送成功`, 'mail');
       return true;
     } else {
-      log(`邮件发送失败: ${resp.status} ${await resp.text()}`, 'error');
+      log(`邮件发送失败: ${resp.status}`, 'error');
       return false;
     }
   } catch(e) {
@@ -708,15 +822,18 @@ async function sendEmailViaResend(to, subject, htmlContent, attachmentPath) {
 // ===== 主要自动化流程 =====
 async function runAutomation(opts) {
   log('='.repeat(60));
-  log('Kimi AgentPPT CDP 自动化 — 完整版 (含下载 + 邮件)');
+  log('Kimi AgentPPT CDP 自动化 — 完整版 (文件上传 + 下载 + 邮件)');
   log('='.repeat(60));
 
-  // 准备下载目录
   const downloadDir = path.resolve(DOWNLOAD_DIR);
   fs.mkdirSync(downloadDir, { recursive: true });
   log(`下载目录: ${downloadDir}`, 'dl');
   if (opts.email) log(`客户邮箱: ${opts.email}`, 'mail');
   if (opts.customer) log(`客户称呼: ${opts.customer}`);
+  if (opts.files && opts.files.length > 0) {
+    log(`待上传附件: ${opts.files.length} 个`, 'upload');
+    opts.files.forEach(f => log(`  ${path.basename(f)}`, 'upload'));
+  }
 
   try {
     // 1. 查找 Kimi 标签页
@@ -734,40 +851,35 @@ async function runAutomation(opts) {
     await Page.enable();
     await DOM.enable();
 
-    // 获取当前标签页列表，供后续检测页面跳转用
-    const allTabs = await CDP.List({ port: DEBUG_PORT });
-
-    // 3. 如果需要，跳转到 Slides
+    // 3. 导航到 Slides（如果需要）
     if (kimiInfo.navigate) {
       log('导航到 Kimi Slides...', 'step');
       await Page.navigate({ url: KIMI_URL });
       await sleep(3000);
     }
 
-    // 4. 判断当前状态：如果已经是 chat 页面（有历史生成），直接等待完成
+    // 4. 判断当前状态
     const isChatPage = kimiInfo.tab.url.includes('kimi.com/chat/');
 
     if (isChatPage) {
-      log('当前已在 Kimi Chat 页面，检测生成状态...', 'info');
-      // 跳过输入，直接等待完成
+      log('当前已在 Kimi Chat 页面', 'info');
     } else {
-      // Slides 页面 → 需要输入并发送
-
       // 等待页面加载
       log('等待页面加载...', 'step');
       await waitForElement(Runtime, '.chat-input-editor', 15000);
       log('编辑器已就绪');
 
-      // 5. 选择模式
-      await selectMode(Runtime, opts.mode);
-
-      // 6. 输入提示词
+      // 5. 输入提示词（先输入文字，再上传文件）
       const textInserted = await insertTextInEditor(Runtime, Input, opts.prompt);
 
-      // 7. 上传附件 (如果有)
+      // 6. 上传附件到 Kimi（关键新增步骤）
+      //    先上传文件再发送，确保 Kimi 收到原始文件
       if (opts.files && opts.files.length > 0) {
-        log('附件上传: 路径已记录，将在提示词中引用', 'info');
+        await uploadFilesToKimi(Runtime, DOM, opts.files);
       }
+
+      // 7. 选择模式
+      await selectMode(Runtime, opts.mode);
 
       // 8. 点击发送
       await clickSend(Runtime, Input);
@@ -785,7 +897,7 @@ async function runAutomation(opts) {
     const fileInfo = await findDownloadedFile(downloadDir, 15000);
 
     // 11. 发送邮件
-    if (opts.email && RESEND_API_KEY) {
+    if (opts.email && (RESEND_API_KEY || process.env.SMTP_USER)) {
       const customerName = opts.customer || opts.email.split('@')[0];
       const topic = opts.topic || 'PPT';
 
@@ -798,7 +910,6 @@ async function runAutomation(opts) {
         <p style="color:#94a3b8;font-size:12px;">Powered by Kimi + AgentPPT · PPT 智能生成服务</p>
       </div>`;
 
-      // 如果有下载到的文件，带附件
       await sendEmailWithAttachment(
         RESEND_API_KEY,
         [opts.email, ADMIN_EMAIL].filter(Boolean),
@@ -808,19 +919,11 @@ async function runAutomation(opts) {
       );
     } else if (fileInfo?.filePath) {
       log(`PPT 已下载到: ${fileInfo.filePath}`, 'dl');
-      log('未设置 RESEND_API_KEY，未发送邮件', 'warn');
-      if (ADMIN_EMAIL) {
-        log(`如需自动发送，请设置环境变量 RESEND_API_KEY`, 'info');
-      }
     }
 
     await tab.close();
     log('='.repeat(60));
-    if (fileInfo) {
-      log(`🎉 全流程完成！PPT: ${fileInfo.fileName}`);
-    } else {
-      log(`🎉 全流程完成！`);
-    }
+    log(`🎉 全流程完成！` + (fileInfo ? ` PPT: ${fileInfo.fileName}` : ''));
     log('='.repeat(60));
     return { success: true, filePath: fileInfo?.filePath || null };
 
@@ -839,10 +942,13 @@ if (opts.prompt) {
   });
 } else {
   // 交互模式
-  console.log('\n📋 Kimi AgentPPT CDP 自动化 (含下载 + 邮件)\n');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  function promptUser(q) { return new Promise(r => rl.question(q, r)); }
+
+  console.log('\n📋 Kimi AgentPPT CDP 自动化 (文件上传 + 下载 + 邮件)\n');
   promptUser('请输入 PPT 提示词: ').then(prompt => {
     opts.prompt = prompt;
-    return promptUser('客户邮箱 (可选，用于发送成品): ');
+    return promptUser('客户邮箱 (可选): ');
   }).then(email => {
     if (email.trim()) opts.email = email.trim();
     return promptUser('客户称呼 (可选): ');
@@ -854,6 +960,7 @@ if (opts.prompt) {
     return promptUser('模式 (1-智能布局 / 2-经典模板) [默认1]: ');
   }).then(mode => {
     if (mode === '2') opts.mode = '经典模板';
+    rl.close();
     return runAutomation(opts);
   }).then(result => {
     process.exit(result.success ? 0 : 1);

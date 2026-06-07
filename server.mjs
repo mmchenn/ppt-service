@@ -1,220 +1,53 @@
-// server.mjs — 本地 Webhook 服务
-// 接收来自 Cloudflare Worker 的 POST 请求 → 自动提交到 Kimi AgentPPT
+// server.mjs — 本地 HTTP 接收服务 + CDP 自动化
 //
-// Cloudflare Worker 配置:
-//   环境变量: WEBHOOK_URL=http://localhost:3456/webhook
+// 工作流程:
+//   浏览器直接 POST http://localhost:3456/api/submit (FormData)
+//   → 接收表单 + 保存附件到本地临时目录
+//   → 调用 kimi-cdp.mjs (原文 + 真实文件)
+//   → 返回成功给浏览器
 //
 // 用法: node server.mjs [--port 3456]
+//
+// 环境变量:
+//   TEMP_DIR     - 附件临时目录 (默认 %TEMP%/ppt-service)
 
-import http from 'http';
-import url from 'url';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import crypto from 'crypto';
 
 // ===== 配置 =====
 const PORT = parseInt(process.argv.find(a => a.startsWith('--port='))?.split('=')[1]) || 3456;
-const SECRET = process.env.WEBHOOK_SECRET || '';  // 可选，用于验证请求来源
-
-// 日志目录 (存储附件)
 const TEMP_DIR = process.env.TEMP_DIR || path.join(process.env.USERPROFILE || 'C:/Users/Administrator', 'AppData/Local/Temp/ppt-service');
 
 // ===== 工具 =====
 function log(msg, type = 'info') {
   const ts = new Date().toISOString().replace(/T/, ' ').slice(0, 19);
-  const icons = { info: '📌', request: '📥', success: '✅', error: '❌', warn: '⚠️', cdp: '🤖' };
+  const icons = { info: '📌', request: '📥', success: '✅', error: '❌', warn: '⚠️', cdp: '🤖', dl: '💾' };
   console.log(`${ts} ${icons[type] || '·'} ${msg}`);
 }
 
-function safeName(str) {
-  return str.replace(/[^a-zA-Z0-9一-龥_-]/g, '_').slice(0, 40);
-}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// ===== 保存附件到本地 =====
-async function saveAttachments(formData, requestId) {
-  const dir = path.join(TEMP_DIR, requestId);
-  fs.mkdirSync(dir, { recursive: true });
-
-  const files = formData.getAll('attachments').filter(f => f instanceof File && f.size > 0);
-  const savedPaths = [];
-
-  for (const file of files) {
-    const safeFileName = `${Date.now()}-${safeName(file.name)}`;
-    const filePath = path.join(dir, safeFileName);
-    const buffer = Buffer.from(await file.arrayBuffer());
-    fs.writeFileSync(filePath, buffer);
-    savedPaths.push(filePath);
-    log(`已保存附件: ${file.name} (${(file.size/1024).toFixed(1)}KB) -> ${filePath}`);
-  }
-
-  return { dir, savedPaths };
-}
-
-// ===== 生成 Kimi 提示词（与 Worker 一致） =====
-function buildKimiPrompt(data) {
-  let text = `请使用 AgentPPT 能力生成一份专业的 PowerPoint 演示文稿。
-
-## 基本信息
-- 客户称呼：${data.name}
-- 接收邮箱：${data.email}
-- PPT 主题：${data.topic}
-- 页数要求：${data.pages} 页（不超过 35 页）
-- 交付时间：${data.deadline}`;
-
-  if (data.style) text += `\n- 风格偏好：${data.style}`;
-  if (data.notes) text += `\n\n## 内容要求\n${data.notes}`;
-
-  text += `\n\n## 输出要求
-1. 内容完整、逻辑清晰、排版美观
-2. 控制在 ${data.pages} 页左右
-3. 生成后提供下载链接或直接发送给客户`;
-
-  return text;
-}
-
-// ===== 调用 CDP 自动化脚本 =====
-function runCdpAutomation(opts) {
-  return new Promise((resolve, reject) => {
-    const scriptPath = path.resolve('kimi-cdp.mjs');
-    const args = ['--prompt', opts.prompt, '--mode', opts.mode || '智能布局'];
-
-    // 传递客户信息（用于邮件）
-    if (opts.email) args.push('--email', opts.email);
-    if (opts.customer) args.push('--customer', opts.customer);
-    if (opts.topic) args.push('--topic', opts.topic);
-
-    if (opts.filePaths && opts.filePaths.length > 0) {
-      opts.filePaths.forEach(f => {
-        // 文件路径可能包含空格，用分隔符传
-      });
-      args.push('--files', opts.filePaths.join(','));
-    }
-    if (opts.pageCount && opts.pageCount !== 'auto') {
-      args.push('--pages', opts.pageCount);
-    }
-
-    log(`启动 CDP 自动化: node kimi-cdp.mjs ${args.join(' ')}`, 'cdp');
-
-    const child = spawn('node', [scriptPath, ...args], {
-      cwd: process.cwd(),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    let output = '';
-
-    child.stdout.on('data', (data) => {
-      const text = data.toString();
-      output += text;
-      process.stdout.write(`  [CDP] ${text}`);
-    });
-
-    child.stderr.on('data', (data) => {
-      const text = data.toString();
-      output += text;
-      process.stderr.write(`  [CDP:err] ${text}`);
-    });
-
-    child.on('close', (code) => {
-      log(`CDP 进程退出，code=${code}`, code === 0 ? 'success' : 'warn');
-      if (code === 0) {
-        resolve({ success: true, output });
-      } else {
-        resolve({ success: false, output, exitCode: code });
-      }
-    });
-
-    child.on('error', (err) => {
-      log(`CDP 进程启动失败: ${err.message}`, 'error');
-      reject(err);
-    });
-  });
-}
-
-// ===== 清理临时文件 =====
-function cleanup(requestId) {
-  const dir = path.join(TEMP_DIR, requestId);
-  try {
-    fs.rmSync(dir, { recursive: true, force: true });
-    log(`已清理临时目录: ${dir}`);
-  } catch(e) {
-    // ignore
-  }
-}
-
-// ===== 验证请求 =====
-function verifyRequest(req, body) {
-  if (!SECRET) return true;
-
-  const signature = req.headers['x-webhook-signature'];
-  const timestamp = req.headers['x-webhook-timestamp'];
-
-  if (!signature || !timestamp) {
-    log('缺少签名头', 'warn');
-    return false;
-  }
-
-  // 简单的 HMAC 验证
-  const payload = `${timestamp}.${body}`;
-  const expected = crypto
-    .createHmac('sha256', SECRET)
-    .update(payload)
-    .digest('hex');
-
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-}
-
-// ===== HTTP 服务 =====
-async function parseBody(req) {
-  return new Promise((resolve, reject) => {
-    const contentType = req.headers['content-type'] || '';
-    const chunks = [];
-
-    req.on('data', chunk => chunks.push(chunk));
-    req.on('end', () => {
-      const buf = Buffer.concat(chunks);
-
-      if (contentType.includes('multipart/form-data')) {
-        // 解析 multipart 表单 (简单实现)
-        const boundary = contentType.split('boundary=')[1];
-        if (!boundary) return resolve({ raw: buf, type: 'unknown' });
-        resolve({ raw: buf, type: 'multipart', boundary });
-      } else if (contentType.includes('application/json')) {
-        try {
-          const data = JSON.parse(buf.toString());
-          resolve({ data, type: 'json', raw: buf });
-        } catch(e) {
-          reject(new Error('JSON 解析失败'));
-        }
-      } else {
-        resolve({ raw: buf, type: 'text', text: buf.toString() });
-      }
-    });
-  });
-}
-
-// ===== 简易 multipart 解析 =====
-function parseMultipart(raw, boundary) {
+// ===== 解析 multipart/form-data =====
+function parseMultipart(buf, boundary) {
   const parts = [];
   const delimiter = `--${boundary}`;
-  const buf = raw;
   let pos = 0;
 
   while (pos < buf.length) {
     const start = buf.indexOf(delimiter, pos);
     if (start === -1) break;
-    const end = buf.indexOf(`\r\n`, start + delimiter.length);
+    const end = buf.indexOf('\r\n', start + delimiter.length);
     if (end === -1) break;
 
     const partStart = start + delimiter.length;
-    if (buf.slice(partStart, partStart + 2).toString() === '--') break; // 结束
+    if (buf.slice(partStart, partStart + 2).toString() === '--') break;
 
-    // 跳过 \r\n
     const headersStart = partStart + 2;
-    const headersEnd = buf.indexOf(`\r\n\r\n`, headersStart);
+    const headersEnd = buf.indexOf('\r\n\r\n', headersStart);
     if (headersEnd === -1) break;
 
-    const headerStr = buf.slice(headersStart, headersEnd).toString();
+    const headerStr = buf.slice(headersStart, headersEnd).toString().toLowerCase();
     const dataStart = headersEnd + 4;
     const dataEnd = buf.indexOf(`\r\n${delimiter}`, dataStart);
     if (dataEnd === -1) break;
@@ -222,23 +55,24 @@ function parseMultipart(raw, boundary) {
     const data = buf.slice(dataStart, dataEnd);
     pos = dataEnd;
 
-    // 解析 header
     const nameMatch = headerStr.match(/name="([^"]+)"/);
     const filenameMatch = headerStr.match(/filename="([^"]+)"/);
-    const contentTypeMatch = headerStr.match(/Content-Type:\s*(\S+)/i);
+    const contentTypeMatch = headerStr.match(/content-type:\s*(\S+)/i);
+
+    const name = nameMatch ? nameMatch[1] : 'unknown';
 
     if (filenameMatch) {
       parts.push({
-        name: nameMatch?.[1] || 'file',
+        name,
         filename: filenameMatch[1],
-        contentType: contentTypeMatch?.[1] || 'application/octet-stream',
+        contentType: contentTypeMatch ? contentTypeMatch[1] : 'application/octet-stream',
         data,
         isFile: true,
       });
     } else {
       parts.push({
-        name: nameMatch?.[1] || 'unknown',
-        value: data.toString(),
+        name,
+        value: data.toString('utf-8').trim(),
         isFile: false,
       });
     }
@@ -247,40 +81,107 @@ function parseMultipart(raw, boundary) {
   return parts;
 }
 
-// ===== 转化为 FormData 兼容对象 =====
-function partsToFormData(parts) {
-  const formData = new Map();
-  const attachments = [];
+// ===== 调用 CDP 自动化 =====
+function runCdpAutomation(opts) {
+  return new Promise((resolve) => {
+    const scriptPath = path.resolve('kimi-cdp.mjs');
+    const args = ['--prompt', opts.prompt];
 
-  for (const p of parts) {
-    if (p.isFile) {
-      const file = {
-        name: p.filename,
-        size: p.data.length,
-        type: p.contentType,
-        arrayBuffer: async () => p.data,
-        stream: () => p.data,
-      };
-      attachments.push(file);
-    } else {
-      formData.set(p.name, p.value);
+    if (opts.mode) args.push('--mode', opts.mode);
+    if (opts.email) args.push('--email', opts.email);
+    if (opts.customer) args.push('--customer', opts.customer);
+    if (opts.topic) args.push('--topic', opts.topic);
+    if (opts.pageCount) args.push('--pages', String(opts.pageCount));
+    if (opts.filePaths && opts.filePaths.length > 0) {
+      args.push('--files-json', JSON.stringify(opts.filePaths));
     }
-  }
-  formData.set('attachments', attachments);
-  formData.getAll = (name) => name === 'attachments' ? attachments : [formData.get(name)];
 
-  return formData;
+    log(`启动 CDP 自动化`, 'cdp');
+    log(`  提示词长度: ${opts.prompt.length} 字符`, 'cdp');
+    log(`  附件数量: ${(opts.filePaths || []).length}`, 'cdp');
+
+    const child = spawn('node', [scriptPath, ...args], {
+      cwd: process.cwd(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        RESEND_API_KEY: process.env.RESEND_API_KEY || '',
+        SMTP_USER: process.env.SMTP_USER || '',
+        SMTP_PASS: process.env.SMTP_PASS || '',
+        SMTP_HOST: process.env.SMTP_HOST || '',
+        SMTP_PORT: process.env.SMTP_PORT || '',
+        ADMIN_EMAIL: process.env.ADMIN_EMAIL || '',
+        DOWNLOAD_DIR: process.env.DOWNLOAD_DIR || 'M:/资料',
+      },
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data) => {
+      const text = data.toString();
+      stdout += text;
+      process.stdout.write(`  [CDP] ${text}`);
+    });
+
+    child.stderr.on('data', (data) => {
+      const text = data.toString();
+      stderr += text;
+      if (text.trim()) process.stderr.write(`  [CDP:err] ${text}`);
+    });
+
+    child.on('close', (code) => {
+      log(`CDP 进程退出 code=${code}`, code === 0 ? 'success' : 'warn');
+      resolve({ success: code === 0, output: stdout, stderr, exitCode: code });
+    });
+
+    child.on('error', (err) => {
+      log(`CDP 启动失败: ${err.message}`, 'error');
+      resolve({ success: false, error: err.message });
+    });
+  });
 }
 
-// ===== 主请求处理 =====
-async function handleRequest(req, res) {
-  const parsed = url.parse(req.url, true);
-  const pathname = parsed.pathname;
+// ===== 构造 Kimi 提示词 =====
+function buildPrompt(item) {
+  let text = `请使用 AgentPPT 能力生成一份专业的 PowerPoint 演示文稿。
 
-  // CORS 头
+## 基本信息
+- 客户称呼：${item.name}
+- 接收邮箱：${item.email}
+- PPT 主题：${item.topic}
+- 页数要求：${item.pages} 页
+- 交付时间：${item.deadline}`;
+
+  if (item.style) text += `\n- 风格偏好：${item.style}`;
+  if (item.notes) text += `\n\n## 内容要求\n${item.notes}`;
+  if (item.files && item.files.length > 0) {
+    text += `\n\n## 附件资料\n`;
+    item.files.forEach((f, i) => {
+      const sizeStr = f.size
+        ? (f.size < 1024 ? f.size + 'B' : f.size < 1048576 ? (f.size / 1024).toFixed(1) + 'KB' : (f.size / 1048576).toFixed(1) + 'MB')
+        : '未知大小';
+      text += `  ${i + 1}. ${f.name} (${sizeStr})\n`;
+    });
+    text += `请参考附件资料中的内容生成 PPT。`;
+  }
+  text += `\n\n## 输出要求\n1. 内容完整、逻辑清晰、排版美观\n2. 控制在 ${item.pages} 页左右\n3. 生成后提供下载链接或直接发送给客户`;
+
+  return text;
+}
+
+// ===== 清理临时目录 =====
+function cleanup(submissionId) {
+  const dir = path.join(TEMP_DIR, submissionId);
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+}
+
+// ===== HTTP 请求处理 =====
+async function handleRequest(req, res) {
+  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-webhook-signature, x-webhook-timestamp');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -289,105 +190,130 @@ async function handleRequest(req, res) {
   }
 
   // GET / — 健康检查
-  if (req.method === 'GET' && (pathname === '/' || pathname === '/health')) {
+  if (req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      status: 'running',
-      port: PORT,
-      tempDir: TEMP_DIR,
-      webhook: `http://localhost:${PORT}/webhook`,
-    }));
+    res.end(JSON.stringify({ status: 'running', port: PORT, tempDir: TEMP_DIR }));
     return;
   }
 
-  // POST /webhook — 接收 Worker 请求
-  if (req.method === 'POST' && pathname === '/webhook') {
-    log('收到 webhook 请求', 'request');
-    const requestId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-    let responseSent = false;
+  // POST /api/submit — 接收表单
+  if (req.method === 'POST' && req.url === '/api/submit') {
+    const contentType = req.headers['content-type'] || '';
+    log('收到新提交', 'request');
+
+    if (!contentType.includes('multipart/form-data')) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: '需要 multipart/form-data' }));
+      return;
+    }
 
     try {
-      const body = await parseBody(req);
+      // 1. 收集请求体
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const buf = Buffer.concat(chunks);
 
-      let formData;
-      let rawData = {};
+      // 2. 解析 multipart
+      const boundary = contentType.split('boundary=')[1];
+      if (!boundary) throw new Error('缺少 boundary');
+      const parts = parseMultipart(buf, boundary);
 
-      if (body.type === 'multipart') {
-        const parts = parseMultipart(body.raw, body.boundary);
-        formData = partsToFormData(parts);
-        for (const p of parts) {
-          if (!p.isFile) rawData[p.name] = p.value;
+      // 3. 提取表单字段
+      const fields = {};
+      const attachments = [];
+      for (const p of parts) {
+        if (p.isFile) {
+          attachments.push(p);
+        } else {
+          fields[p.name] = p.value;
         }
-        rawData.attachments = formData.getAll('attachments');
-      } else if (body.type === 'json') {
-        rawData = body.data;
-      } else {
+      }
+
+      // 4. 验证必填
+      if (!fields.name || !fields.email || !fields.topic || !fields.pages || !fields.deadline) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: '不支持的 Content-Type' }));
+        res.end(JSON.stringify({ success: false, error: '请填写所有必填项' }));
         return;
       }
 
-      // 验证
-      if (!rawData.topic) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: '缺少 topic 字段' }));
-        return;
+      // 5. 保存附件到本地
+      const submissionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      const dir = path.join(TEMP_DIR, submissionId);
+      fs.mkdirSync(dir, { recursive: true });
+
+      const savedFiles = [];
+      const localPaths = [];
+      for (const att of attachments) {
+        const safeName = att.filename.replace(/[^a-zA-Z0-9一-龥._-]/g, '_');
+        const filePath = path.join(dir, safeName);
+        fs.writeFileSync(filePath, att.data);
+        localPaths.push(filePath);
+        savedFiles.push({ name: att.filename, size: att.data.length });
+        log(`已保存附件: ${att.filename} (${(att.data.length/1024).toFixed(1)}KB)`, 'dl');
       }
 
-      // 立即返回 202 给 Worker (异步处理)
-      res.writeHead(202, { 'Content-Type': 'application/json' });
+      // 6. 构造提示词
+      const item = {
+        name: fields.name,
+        email: fields.email,
+        topic: fields.topic,
+        pages: fields.pages,
+        deadline: fields.deadline,
+        style: fields.style || '',
+        notes: fields.notes || '',
+        files: savedFiles,
+      };
+      const prompt = buildPrompt(item);
+
+      // 7. 打印提交详情
+      log('─'.repeat(50), 'request');
+      log(`  客户: ${item.name} <${item.email}>`);
+      log(`  主题: ${item.topic}`);
+      log(`  页数: ${item.pages} | 交付: ${item.deadline}`);
+      if (item.style) log(`  风格: ${item.style}`);
+      if (item.notes) log(`  要求: ${item.notes.slice(0, 200)}`);
+      log(`  附件: ${savedFiles.length} 个`);
+      savedFiles.forEach(f => log(`    · ${f.name}`));
+      log('─'.repeat(50), 'request');
+
+      // 8. 先返回给浏览器（让前端知道提交成功）
+      //    然后后台异步执行 CDP
+      res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         success: true,
-        message: '已接收请求，正在提交到 Kimi AgentPPT',
-        requestId,
+        message: '需求已提交！正在自动提交到 Kimi 生成…',
+        submission_id: submissionId,
+        file_count: savedFiles.length,
+        agent_prompt: prompt,
+        files: savedFiles,
       }));
-      responseSent = true;
 
-      // 保存附件
-      let savedPaths = [];
-      if (rawData.attachments && rawData.attachments.length > 0) {
-        const fileList = rawData.attachments;
-        const dir = path.join(TEMP_DIR, requestId);
-        fs.mkdirSync(dir, { recursive: true });
-
-        for (const file of fileList) {
-          const safeFileName = `${Date.now()}-${safeName(file.name)}`;
-          const filePath = path.join(dir, safeFileName);
-          const buffer = Buffer.from(await file.arrayBuffer());
-          fs.writeFileSync(filePath, buffer);
-          savedPaths.push(filePath);
-          log(`已保存附件: ${file.name} -> ${filePath}`);
-        }
-      }
-
-      // 构造完整提示词
-      const prompt = buildKimiPrompt(rawData);
-
-      // 运行 CDP 自动化
+      // 9. 异步执行 CDP（不影响前端响应）
+      log(`开始 CDP 自动化...`, 'cdp');
       const cdpResult = await runCdpAutomation({
         prompt,
-        mode: rawData.style || '智能布局',
-        filePaths: savedPaths.length > 0 ? savedPaths : undefined,
-        pageCount: rawData.pages || 'auto',
-        email: rawData.email || undefined,
-        customer: rawData.name || undefined,
-        topic: rawData.topic,
+        mode: item.style || '智能布局',
+        filePaths: localPaths,
+        pageCount: item.pages,
+        email: item.email,
+        customer: item.name,
+        topic: item.topic,
       });
 
-      // 清理临时文件
-      cleanup(requestId);
-
-      if (!cdpResult.success) {
-        log('CDP 自动化未完全成功', 'warn');
+      if (cdpResult.success) {
+        log(`✅ 全流程完成: ${item.topic}`, 'success');
+      } else {
+        log(`❌ CDP 自动化失败: ${cdpResult.error || 'exit code ' + cdpResult.exitCode}`, 'error');
       }
 
-    } catch (e) {
-      log(`处理 webhook 失败: ${e.message}`, 'error');
-      cleanup(requestId);
+      // 10. 清理临时文件
+      cleanup(submissionId);
 
-      if (!responseSent) {
+    } catch (e) {
+      log(`处理失败: ${e.message}`, 'error');
+      if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
+        res.end(JSON.stringify({ success: false, error: e.message }));
       }
     }
     return;
@@ -401,20 +327,23 @@ async function handleRequest(req, res) {
 // ===== 启动 =====
 fs.mkdirSync(TEMP_DIR, { recursive: true });
 
+log('='.repeat(50));
+log('PPT Service — 本地直收模式');
+log('='.repeat(50));
+log(`监听端口: ${PORT}`);
+log(`接收地址: http://localhost:${PORT}/api/submit`);
+log(`临时目录: ${TEMP_DIR}`);
+log('');
+log('📌 确保以下条件就绪:');
+log('  1. Edge 已启动 --remote-debugging-port=9222');
+log('  2. Kimi slides 页面已打开并登录');
+log('  3. 前端 index.html 中的 fetch 指向本机');
+log('='.repeat(50));
+
+import http from 'http';
 const server = http.createServer(handleRequest);
 server.listen(PORT, () => {
-  log('='.repeat(50));
-  log('PPT Service Local Webhook Server');
-  log('='.repeat(50));
-  log(`监听端口: ${PORT}`);
-  log(`Webhook URL: http://localhost:${PORT}/webhook`);
-  log(`临时目录: ${TEMP_DIR}`);
-  log('');
-  log('在 Cloudflare Worker 中设置环境变量:');
-  log(`  WEBHOOK_URL=http://YOUR_IP:${PORT}/webhook`);
-  log('');
-  log('健康检查: http://localhost:${PORT}/health');
-  log('='.repeat(50));
+  log(`服务已启动: http://localhost:${PORT}`, 'success');
 });
 
 process.on('uncaughtException', (e) => {
@@ -422,6 +351,6 @@ process.on('uncaughtException', (e) => {
 });
 
 process.on('SIGTERM', () => {
-  log('收到 SIGTERM，正在关闭...');
-  server.close(() => process.exit(0));
+  log('收到 SIGTERM，正在关闭...', 'info');
+  process.exit(0);
 });

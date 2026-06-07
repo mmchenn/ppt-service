@@ -1043,6 +1043,13 @@ async function runAutomation(opts) {
       log(`PPT 已下载到: ${fileInfo.filePath}`, 'dl');
     }
 
+    // 12. 重置 Kimi 页面，为下一次提交做准备
+    log('重置 Kimi 页面...', 'step');
+    log('导航到 Kimi Slides 首页...', 'step');
+    await Page.navigate({ url: KIMI_URL });
+    await sleep(5000);
+    log('✅ Kimi 页面已重置到首页', 'info');
+
     await tab.close();
     log('='.repeat(60));
     log(`🎉 全流程完成！` + (fileInfo ? ` PPT: ${fileInfo.fileName}` : ''));

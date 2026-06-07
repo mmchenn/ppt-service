@@ -10,7 +10,7 @@
 //   2. cloudflared tunnel --url http://localhost:3456
 
 // Quick Tunnel URL（每次重启 cloudflared 后需要更新）
-const TUNNEL_URL = 'https://unknown-enclosure-conflict-marathon.trycloudflare.com';
+const TUNNEL_URL = 'https://illustrated-discrimination-richard-ears.trycloudflare.com';
 
 export async function onRequest(context) {
   const { request } = context;

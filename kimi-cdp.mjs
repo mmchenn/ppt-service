@@ -33,7 +33,6 @@ try {
 const KIMI_URL = 'https://www.kimi.com/slides';
 const DEBUG_PORT = 9222;
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '';
 const DOWNLOAD_DIR = process.env.DOWNLOAD_DIR || 'M:/资料';
 
 // ===== 工具 =====

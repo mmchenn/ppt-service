@@ -110,7 +110,6 @@ function runCdpAutomation(opts) {
         SMTP_PASS: process.env.SMTP_PASS || '',
         SMTP_HOST: process.env.SMTP_HOST || '',
         SMTP_PORT: process.env.SMTP_PORT || '',
-        ADMIN_EMAIL: process.env.ADMIN_EMAIL || '',
         DOWNLOAD_DIR: process.env.DOWNLOAD_DIR || 'M:/资料',
       },
     });

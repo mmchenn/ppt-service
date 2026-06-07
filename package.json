@@ -24,6 +24,7 @@
   "homepage": "https://github.com/mmchenn/ppt-service#readme",
   "dependencies": {
     "chrome-remote-interface": "^0.34.0",
+    "nodemailer": "^8.0.10",
     "ws": "^8.21.0"
   }
 }

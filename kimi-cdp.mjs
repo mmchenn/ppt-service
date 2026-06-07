@@ -4,9 +4,13 @@
 //                         [--email "client@example.com"] [--customer "称呼"]
 //
 // 环境变量:
-//   RESEND_API_KEY — 用于发送邮件 (可选，不设置则不发送)
-//   ADMIN_EMAIL    — 管理员通知邮箱 (可选)
-//   DOWNLOAD_DIR   — PPT 下载目录 (默认: %TEMP%/ppt-service/downloads)
+//   RESEND_API_KEY  — 用于发送邮件 (可选，不设置则不发送)
+//   SMTP_HOST       — SMTP 服务器 (可选，默认 smtp.qq.com)
+//   SMTP_PORT       — SMTP 端口 (可选，默认 465)
+//   SMTP_USER       — SMTP 邮箱账号
+//   SMTP_PASS       — SMTP 密码/授权码
+//   ADMIN_EMAIL     — 管理员通知邮箱 (可选)
+//   DOWNLOAD_DIR    — PPT 下载目录 (默认: M:/资料)
 
 import CDP from 'chrome-remote-interface';
 import { createInterface } from 'readline';
@@ -576,80 +580,123 @@ async function resetEditor(Runtime, Input) {
   await sleep(300);
 }
 
-// ===== 发送邮件（Resend API）- 使用 JSON 格式 + separate attachment upload =====
+// ===== 发送邮件（SMTP）- 支持 QQ 邮箱等 =====
 async function sendEmailWithAttachment(apiKey, to, subject, htmlContent, attachmentPath) {
+  // 优先用 SMTP 发信
+  const smtpUser = process.env.SMTP_USER;
+  if (smtpUser) {
+    return sendEmailViaSMTP(to, subject, htmlContent, attachmentPath);
+  }
+  // 后备：Resend API
+  return sendEmailViaResend(to, subject, htmlContent, attachmentPath);
+}
+
+// ===== SMTP 发信（nodemailer） =====
+async function sendEmailViaSMTP(to, subject, htmlContent, attachmentPath) {
+  const nodemailer = await import('nodemailer');
+
+  const smtpHost = process.env.SMTP_HOST || 'smtp.qq.com';
+  const smtpPort = parseInt(process.env.SMTP_PORT || '465');
+  const smtpUser = process.env.SMTP_USER;
+  const smtpPass = process.env.SMTP_PASS;
+  const fromName = process.env.SMTP_FROM_NAME || 'PPT 智能生成';
+
+  if (!smtpUser || !smtpPass) {
+    log('SMTP 未配置（需要 SMTP_USER 和 SMTP_PASS），跳过邮件发送', 'warn');
+    return false;
+  }
+
+  const recipients = typeof to === 'string' ? to : to.join(', ');
+
+  log(`📧 通过 SMTP 发送到 ${recipients}...`, 'mail');
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465,
+      auth: { user: smtpUser, pass: smtpPass },
+    });
+
+    const mailOptions = {
+      from: `"${fromName}" <${smtpUser}>`,
+      to: recipients,
+      subject: subject,
+      html: htmlContent,
+    };
+
+    if (attachmentPath && fs.existsSync(attachmentPath)) {
+      mailOptions.attachments = [{
+        filename: path.basename(attachmentPath),
+        path: attachmentPath,
+      }];
+      log(`📎 附件: ${path.basename(attachmentPath)}`, 'mail');
+    }
+
+    const info = await transporter.sendMail(mailOptions);
+    log(`✅ 邮件发送成功: ${info.messageId}`, 'mail');
+    return true;
+  } catch(e) {
+    log(`❌ 邮件发送失败: ${e.message}`, 'error');
+    return false;
+  }
+}
+
+// ===== Resend API 发信（后备） =====
+async function sendEmailViaResend(to, subject, htmlContent, attachmentPath) {
+  const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     log('未设置 RESEND_API_KEY，跳过邮件发送', 'warn');
     return false;
   }
 
   const recipients = typeof to === 'string' ? [to] : to;
+  log(`发送邮件到 ${recipients.join(', ')} (Resend)...`, 'mail');
 
-  log(`发送邮件到 ${recipients.join(', ')}...`, 'mail');
-
-  // Resend 支持 JSON 格式的附件：先上传文件获取 ID，再引用
   let attachmentId = null;
-
   if (attachmentPath && fs.existsSync(attachmentPath)) {
     try {
       const fileName = path.basename(attachmentPath);
       const fileBuffer = fs.readFileSync(attachmentPath);
-
       log(`上传附件到 Resend: ${fileName} (${(fileBuffer.length/1024).toFixed(1)}KB)`, 'mail');
-
-      // Resend 使用 multipart/form-data 上传附件获取 attachment ID
       const formData = new FormData();
       const blob = new Blob([fileBuffer]);
       formData.append('file', blob, fileName);
-
       const uploadResp = await fetch('https://api.resend.com/attachments', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${apiKey}` },
         body: formData,
       });
-
       if (uploadResp.ok) {
-        const uploadResult = await uploadResp.json();
-        attachmentId = uploadResult.id;
+        attachmentId = (await uploadResp.json()).id;
         log(`附件上传成功: ${attachmentId}`, 'mail');
       } else {
-        const errText = await uploadResp.text();
-        log(`附件上传失败: ${errText}`, 'warn');
+        log(`附件上传失败: ${await uploadResp.text()}`, 'warn');
       }
     } catch(e) {
       log(`附件上传异常: ${e.message}`, 'warn');
     }
   }
 
-  // 发送邮件（JSON 格式）
   const emailPayload = {
-    from: process.env.EMAIL_FROM || 'PPT 智能生成 <18038631469@163.com>',
+    from: process.env.EMAIL_FROM || 'PPT 智能生成 <onboarding@resend.dev>',
     to: recipients,
-    subject: subject,
+    subject,
     html: htmlContent,
   };
-
-  if (attachmentId) {
-    emailPayload.attachments = [{ id: attachmentId }];
-  }
+  if (attachmentId) emailPayload.attachments = [{ id: attachmentId }];
 
   try {
     const resp = await fetch('https://api.resend.com/emails', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(emailPayload),
     });
-
     if (resp.ok) {
-      const data = await resp.json();
-      log(`邮件发送成功: ${data.id}`, 'mail');
+      log(`邮件发送成功: ${(await resp.json()).id}`, 'mail');
       return true;
     } else {
-      const errText = await resp.text();
-      log(`邮件发送失败: ${resp.status} ${errText}`, 'error');
+      log(`邮件发送失败: ${resp.status} ${await resp.text()}`, 'error');
       return false;
     }
   } catch(e) {

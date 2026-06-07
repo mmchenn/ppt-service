@@ -144,30 +144,26 @@ function runCdpAutomation(opts) {
 
 // ===== 构造 Kimi 提示词 =====
 function buildPrompt(item) {
-  let text = `请使用 AgentPPT 能力生成一份专业的 PowerPoint 演示文稿。
+  // 只输出客户填写的原始内容，不做任何包装
+  const parts = [];
 
-## 基本信息
-- 客户称呼：${item.name}
-- 接收邮箱：${item.email}
-- PPT 主题：${item.topic}
-- 页数要求：${item.pages} 页
-- 交付时间：${item.deadline}`;
+  // 1. 页数（客户填的原文）
+  parts.push(`${item.pages} 页`);
 
-  if (item.style) text += `\n- 风格偏好：${item.style}`;
-  if (item.notes) text += `\n\n## 内容要求\n${item.notes}`;
-  if (item.files && item.files.length > 0) {
-    text += `\n\n## 附件资料\n`;
-    item.files.forEach((f, i) => {
-      const sizeStr = f.size
-        ? (f.size < 1024 ? f.size + 'B' : f.size < 1048576 ? (f.size / 1024).toFixed(1) + 'KB' : (f.size / 1048576).toFixed(1) + 'MB')
-        : '未知大小';
-      text += `  ${i + 1}. ${f.name} (${sizeStr})\n`;
-    });
-    text += `请参考附件资料中的内容生成 PPT。`;
+  // 2. 内容要求（客户填的原文，原样保留）
+  if (item.notes && item.notes.trim()) {
+    parts.push(item.notes.trim());
   }
-  text += `\n\n## 输出要求\n1. 内容完整、逻辑清晰、排版美观\n2. 控制在 ${item.pages} 页左右\n3. 生成后提供下载链接或直接发送给客户`;
 
-  return text;
+  // 3. 附件清单（仅列出文件名）
+  if (item.files && item.files.length > 0) {
+    const fileLines = item.files.map((f, i) =>
+      `${i + 1}. ${f.name}`
+    );
+    parts.push(`附件：\n${fileLines.join('\n')}`);
+  }
+
+  return parts.join('\n\n');
 }
 
 // ===== 清理临时目录 =====

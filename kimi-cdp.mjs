@@ -117,66 +117,63 @@ async function waitForElement(Runtime, selector, timeout = 15000) {
 async function insertTextInEditor(Runtime, Input, text) {
   log('在编辑器中输入提示词...', 'step');
 
+  if (!text || text.length < 2) {
+    log(`提示词为空或太短 (${text.length} 字符)`, 'warn');
+    return false;
+  }
+
+  // 1. 聚焦编辑器
   await Runtime.evaluate({ expression: `document.querySelector('.chat-input-editor')?.focus()` });
   await sleep(300);
 
-  // 清空
+  // 2. 清空编辑器
   await Runtime.evaluate({
     expression: `(() => {
-      const editor = document.querySelector('.chat-input-editor');
-      if (!editor) return;
+      const ed = document.querySelector('.chat-input-editor');
+      if (!ed) return;
+      ed.focus();
       const sel = window.getSelection();
       sel.removeAllRanges();
       const range = document.createRange();
-      range.selectNodeContents(editor);
+      range.selectNodeContents(ed);
       sel.addRange(range);
     })()`,
     returnByValue: true,
   });
   await sleep(100);
   await Input.dispatchKeyEvent({ type: 'keyDown', key: 'Backspace', windowsVirtualKeyCode: 8 });
+  await sleep(50);
   await Input.dispatchKeyEvent({ type: 'keyUp', key: 'Backspace', windowsVirtualKeyCode: 8 });
-  await sleep(200);
+  await sleep(100);
   await Runtime.evaluate({ expression: `document.querySelector('.chat-input-editor').innerHTML = ''`, returnByValue: true });
   await sleep(100);
 
-  // CDP 键盘模拟
-  log('通过 CDP Input.insertText 模拟键盘输入...', 'step');
-  for (let i = 0; i < text.length; i += 50) {
-    await Input.insertText({ text: text.slice(i, i + 50) });
-    await sleep(50);
-  }
+  // 3. 用 Input.insertText 一次性写入（处理所有字符编码）
+  log(`正在写入 ${text.length} 字符...`, 'step');
+  await Input.insertText({ text: text });
   await sleep(500);
+
+  // 4. 触发 Vue 响应
   await Runtime.evaluate({
-    expression: `document.querySelector('.chat-input-editor')?.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }))`,
+    expression: `(() => {
+      const ed = document.querySelector('.chat-input-editor');
+      if (ed) {
+        ed.dispatchEvent(new Event('input', { bubbles: true }));
+        ed.dispatchEvent(new Event('compositionend', { bubbles: true }));
+      }
+    })()`,
     returnByValue: true,
   });
-  await sleep(800);
+  await sleep(500);
 
+  // 5. 验证
   const { result: check } = await Runtime.evaluate({
     expression: `document.querySelector('.chat-input-editor')?.innerText?.length || 0`,
     returnByValue: true,
   });
-  log(`编辑器内容长度: ${check.value} 字符`);
+  log(`编辑器内容长度: ${check.value} 字符`, check.value > 5 ? 'success' : 'warn');
 
-  if (check.value < 5) {
-    log('重试：逐字符输入...', 'warn');
-    await Runtime.evaluate({ expression: `document.querySelector('.chat-input-editor').innerHTML = ''`, returnByValue: true });
-    await Runtime.evaluate({ expression: `document.querySelector('.chat-input-editor')?.focus()` });
-    await sleep(200);
-    for (const char of text) {
-      await Input.insertText({ text: char });
-      await sleep(15);
-    }
-    await sleep(500);
-    const { result: retry } = await Runtime.evaluate({
-      expression: `document.querySelector('.chat-input-editor')?.innerText?.length || 0`,
-      returnByValue: true,
-    });
-    log(`重试后长度: ${retry.value} 字符`);
-    return retry.value > 10;
-  }
-  return check.value > 10;
+  return check.value > 5;
 }
 
 // ===== 核心新增: 上传文件到 Kimi =====
@@ -366,41 +363,103 @@ async function clickSend(Runtime, Input) {
   const start = Date.now();
   let sendEnabled = false;
 
+  // 多个可能的选择器
+  const sendSelectors = [
+    '.send-button-container',
+    '.send-btn',
+    '[class*="send"]',
+    'button[class*="send"]',
+    'button:has(svg)',
+    '.submit-btn',
+    '[class*="submit"]',
+    'button[class*="submit"]',
+    // 检测可交互的发送区域
+    '[class*="toolbar"] button:last-child',
+    'form button[type="submit"]',
+    '.chat-input-area button:last-child',
+  ];
+
   while (Date.now() - start < 30000) {
     const { result } = await Runtime.evaluate({
       expression: `(() => {
-        const c = document.querySelector('.send-button-container');
-        if (!c) return { status: 'not-found' };
-        return { status: c.classList.contains('disabled') ? 'disabled' : 'enabled', classes: c.className };
+        const sendBtn = document.querySelector('.send-button-container');
+        if (sendBtn) {
+          return { status: sendBtn.classList.contains('disabled') ? 'disabled' : 'enabled', selector: '.send-button-container' };
+        }
+        // 尝试查找任何可点击的发送按钮
+        const selectors = ${JSON.stringify(sendSelectors)};
+        for (const sel of selectors) {
+          const el = document.querySelector(sel);
+          if (el && el.offsetParent !== null) {
+            const cls = el.className || '';
+            const disabled = el.disabled || cls.includes('disabled');
+            return { status: disabled ? 'disabled' : 'enabled', selector: sel, classes: cls.slice(0, 60) };
+          }
+        }
+        // 查找包含发送图标的按钮
+        const allButtons = document.querySelectorAll('button');
+        for (const btn of allButtons) {
+          if (btn.offsetParent === null) continue;
+          const html = btn.innerHTML.toLowerCase();
+          if (html.includes('send') || html.includes('发送') || html.includes('arrow') || html.includes('play') || html.includes('启动') || html.includes('生成')) {
+            const cls = btn.className || '';
+            const disabled = btn.disabled || cls.includes('disabled');
+            return { status: disabled ? 'disabled' : 'enabled', selector: 'button-icon-match', text: btn.textContent.trim().slice(0, 20) };
+          }
+        }
+        return { status: 'not-found' };
       })()`,
       returnByValue: true,
     });
 
-    if (result.value.status === 'enabled') { sendEnabled = true; break; }
-
-    // 前 5 秒触发 blur/focus 尝试唤醒 Vue 响应
-    if (Date.now() - start < 5000) {
-      await Runtime.evaluate({
-        expression: `(() => {
-          const ed = document.querySelector('.chat-input-editor');
-          if (ed) { ed.blur(); setTimeout(() => { ed.focus(); ed.dispatchEvent(new Event('input', {bubbles:true})); }, 100); }
-        })()`,
-        returnByValue: true,
-      });
+    const status = result.value;
+    if (status.status === 'enabled') {
+      sendEnabled = true;
+      log(`发送按钮已就绪 (选择器: ${status.selector}${status.text ? ', text: ' + status.text : ''})`);
+      break;
+    }
+    if (status.status === 'not-found') {
+      // 还没找到按钮，先触发 input 事件尝试唤醒 Vue
+      if (Date.now() - start < 8000) {
+        await Runtime.evaluate({
+          expression: `(() => {
+            const ed = document.querySelector('.chat-input-editor');
+            if (ed) {
+              ed.dispatchEvent(new Event('input', {bubbles:true}));
+              ed.dispatchEvent(new Event('compositionend', {bubbles:true}));
+            }
+          })()`,
+          returnByValue: true,
+        });
+        await sleep(100);
+        // 按下回车尝试触发 Vue 响应
+        await Input.dispatchKeyEvent({ type: 'keyDown', key: 'Enter', windowsVirtualKeyCode: 13 });
+        await sleep(50);
+        await Input.dispatchKeyEvent({ type: 'keyUp', key: 'Enter', windowsVirtualKeyCode: 13 });
+        await sleep(300);
+      }
     }
     await sleep(500);
   }
 
   if (!sendEnabled) {
-    log('发送按钮未自动启用，尝试强制启用...', 'warn');
+    log('发送按钮未就绪，尝试强制点击所有可能的按钮...', 'warn');
     await Runtime.evaluate({
       expression: `(() => {
-        const c = document.querySelector('.send-button-container');
-        if (!c) return;
-        c.classList.remove('disabled');
-        c.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-        const svg = c.querySelector('svg');
-        if (svg) svg.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        // 移除 disabled 类并点击
+        const candidates = document.querySelectorAll('.send-button-container, [class*="send"], [class*="submit"], button:last-child');
+        candidates.forEach(el => {
+          el.classList.remove('disabled');
+          if (el.disabled) el.disabled = false;
+          el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        });
+        // 也尝试直接点击发送图标按钮
+        document.querySelectorAll('button').forEach(btn => {
+          const html = btn.innerHTML.toLowerCase();
+          if ((html.includes('send') || html.includes('发送') || html.includes('arrow') || html.includes('启动') || html.includes('生成')) && btn.offsetParent !== null) {
+            btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          }
+        });
       })()`,
       returnByValue: true,
     });
@@ -409,14 +468,63 @@ async function clickSend(Runtime, Input) {
   }
 
   log('点击发送按钮...', 'step');
-  await Runtime.evaluate({
+  // 直接在页面内完成查找和点击，避免传变量
+  const clickResult = await Runtime.evaluate({
     expression: `(() => {
+      const sels = ${JSON.stringify(sendSelectors)};
+      // 1. 尝试 .send-button-container
       const c = document.querySelector('.send-button-container');
-      if (c) c.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      if (c && !c.classList.contains('disabled')) {
+        c.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        return 'clicked-send-button-container';
+      }
+      // 2. 遍历候选选择器
+      for (const sel of sels) {
+        const el = document.querySelector(sel);
+        if (el && el.offsetParent !== null) {
+          el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          return 'clicked-' + sel;
+        }
+      }
+      // 3. 文本匹配按钮
+      const allButtons = document.querySelectorAll('button');
+      for (const btn of allButtons) {
+        if (btn.offsetParent === null) continue;
+        const html = btn.innerHTML.toLowerCase();
+        if (html.includes('send') || html.includes('发送') || html.includes('arrow') || html.includes('启动') || html.includes('生成')) {
+          btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          return 'clicked-by-text-' + btn.textContent.trim().slice(0, 10);
+        }
+      }
+      return 'no-button-found';
     })()`,
     returnByValue: true,
   });
-  await sleep(2000);
+  log(`点击结果: ${clickResult.value}`, 'info');
+  await sleep(3000);
+
+  // 验证是否真的发送了（编辑器内容应该被清空）
+  const { result: checkSent } = await Runtime.evaluate({
+    expression: `document.querySelector('.chat-input-editor')?.innerText?.length || 0`,
+    returnByValue: true,
+  });
+  log(`发送后编辑器长度: ${checkSent.value}`, checkSent.value < 10 ? 'success' : 'warn');
+  if (checkSent.value > 10) {
+    log('按钮可能未生效，尝试按 Enter 键发送...', 'warn');
+    await Runtime.evaluate({ expression: `document.querySelector('.chat-input-editor')?.focus()`, returnByValue: true });
+    await sleep(200);
+    // Ctrl+Enter 或直接 Enter
+    await Input.dispatchKeyEvent({ type: 'keyDown', key: 'Enter', modifiers: ['meta'] });
+    await sleep(50);
+    await Input.dispatchKeyEvent({ type: 'keyUp', key: 'Enter', modifiers: ['meta'] });
+    await sleep(500);
+    const { result: retry } = await Runtime.evaluate({
+      expression: `document.querySelector('.chat-input-editor')?.innerText?.length || 0`,
+      returnByValue: true,
+    });
+    log(`Enter 发送后编辑器长度: ${retry.value}`, 'info');
+  }
+
   return true;
 }
 
@@ -878,8 +986,23 @@ async function runAutomation(opts) {
         await uploadFilesToKimi(Runtime, DOM, opts.files);
       }
 
-      // 7. 选择模式
-      await selectMode(Runtime, opts.mode);
+      // 7. 重新聚焦编辑器并触发输入事件，确保 Vue 响应式状态同步
+      log('同步编辑器状态...', 'step');
+      await Runtime.evaluate({
+        expression: `(() => {
+          const ed = document.querySelector('.chat-input-editor');
+          if (ed) {
+            ed.focus();
+            ed.dispatchEvent(new Event('focus', { bubbles: true }));
+            ed.dispatchEvent(new Event('input', { bubbles: true }));
+            ed.dispatchEvent(new Event('compositionend', { bubbles: true }));
+            // 点击编辑器触发 Vue 更新
+            ed.click();
+          }
+        })()`,
+        returnByValue: true,
+      });
+      await sleep(500);
 
       // 8. 点击发送
       await clickSend(Runtime, Input);
@@ -912,7 +1035,7 @@ async function runAutomation(opts) {
 
       await sendEmailWithAttachment(
         RESEND_API_KEY,
-        [opts.email, ADMIN_EMAIL].filter(Boolean),
+        [opts.email].filter(Boolean),
         `📊 您的 PPT「${topic}」已生成 - ${customerName}`,
         htmlContent,
         fileInfo?.filePath || null

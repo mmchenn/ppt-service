@@ -3,4 +3,3 @@ node_modules/
 .env
 downloads/
 cloudflared*
-start-ppt-service.ps1

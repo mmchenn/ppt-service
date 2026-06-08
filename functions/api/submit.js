@@ -8,7 +8,7 @@
 //   2. cloudflared tunnel --url http://localhost:3456
 
 // Quick Tunnel URL（每次重�?cloudflared 后需要更新）
-const TUNNEL_URL = 'https://stretch-listening-teams-supports.trycloudflare.com';
+const TUNNEL_URL = 'https://yoga-referred-novels-prev.trycloudflare.com';
 
 export async function onRequest(context) {
   const { request } = context;

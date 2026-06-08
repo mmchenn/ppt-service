@@ -5,7 +5,7 @@
 //   1. node server.mjs
 //   2. cloudflared tunnel --url http://localhost:3456
 
-const TUNNEL_URL = 'https://yoga-referred-novels-prev.trycloudflare.com';
+const TUNNEL_URL = 'https://grams-offered-attract-open.trycloudflare.com';
 
 export async function onRequest(context) {
   const { request } = context;

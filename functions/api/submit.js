@@ -5,7 +5,7 @@
 //   1. node server.mjs
 //   2. cloudflared tunnel --url http://localhost:3456
 
-const TUNNEL_URL = 'https://troy-criterion-premises-bristol.trycloudflare.com';
+const TUNNEL_URL = 'https://prototype-fitting-aaa-dated.trycloudflare.com';
 
 export async function onRequest(context) {
   const { request } = context;

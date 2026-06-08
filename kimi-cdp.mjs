@@ -839,6 +839,9 @@ async function sendEmailViaSMTP(to, subject, htmlContent, attachmentPath) {
       port: smtpPort,
       secure: smtpPort === 465,
       auth: { user: smtpUser, pass: smtpPass },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
     });
 
     const mailOptions = {
@@ -1015,8 +1018,9 @@ async function runAutomation(opts) {
       return dlResult;
     }
 
-    // 10. 查找下载的 PPT 文件
-    const fileInfo = await findDownloadedFile(downloadDir, 15000);
+    // 10. 发送邮件（使用 dlResult.filePath 作为附件，已在 waitAndDownload 中找到）
+    const fileInfoPath = dlResult.filePath;
+    if (fileInfoPath) log(`PPT 文件: ${fileInfoPath}`, 'dl');
 
     // 11. 发送邮件
     if (opts.email && (RESEND_API_KEY || process.env.SMTP_USER)) {
@@ -1037,10 +1041,10 @@ async function runAutomation(opts) {
         [opts.email].filter(Boolean),
         `📊 您的 PPT「${topic}」已生成 - ${customerName}`,
         htmlContent,
-        fileInfo?.filePath || null
+        fileInfoPath
       );
-    } else if (fileInfo?.filePath) {
-      log(`PPT 已下载到: ${fileInfo.filePath}`, 'dl');
+    } else if (fileInfoPath) {
+      log(`PPT 已下载到: ${fileInfoPath}`, 'dl');
     }
 
     // 12. 重置 Kimi 页面，为下一次提交做准备

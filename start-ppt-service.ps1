@@ -66,7 +66,8 @@ $tunnelUrl = $null
 for ($i = 0; $i -lt 30; $i++) {
     Start-Sleep -Seconds 1
     $output = Receive-Job -Job $tunnelJob -Keep -ErrorAction SilentlyContinue
-    if ($output -match "https://([a-z0-9-]+\.trycloudflare\.com)") {
+    $allText = ($output | Out-String)
+    if ($allText -match "https://([a-z0-9-]+\.trycloudflare\.com)") {
         $tunnelUrl = $matches[0]
         break
     }

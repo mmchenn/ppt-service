@@ -1,16 +1,14 @@
-// ——— PPT 需求提交 Worker (转发模式) ———
-// 客户通过 Cloudflare Pages 提交 → Worker 转发到本地 tunnel → server.mjs
+// ——�?PPT 需求提�?Worker (转发模式) ——�?// 客户通过 Cloudflare Pages 提交 �?Worker 转发到本�?tunnel �?server.mjs
 //
-// 架构：
-//   client → https://ppt-service.pages.dev/api/submit (Worker)
-//            → cloudflared tunnel → localhost:3456 → server.mjs → CDP → Kimi
+// 架构�?//   client �?https://ppt-service.pages.dev/api/submit (Worker)
+//            �?cloudflared tunnel �?localhost:3456 �?server.mjs �?CDP �?Kimi
 //
 // 依赖：本地需要运行：
 //   1. node server.mjs
 //   2. cloudflared tunnel --url http://localhost:3456
 
-// Quick Tunnel URL（每次重启 cloudflared 后需要更新）
-const TUNNEL_URL = 'https://illustrated-discrimination-richard-ears.trycloudflare.com';
+// Quick Tunnel URL（每次重�?cloudflared 后需要更新）
+const TUNNEL_URL = 'https://stretch-listening-teams-supports.trycloudflare.com';
 
 export async function onRequest(context) {
   const { request } = context;
@@ -34,8 +32,7 @@ export async function onRequest(context) {
   }
 
   try {
-    // 直接转发到本地服务（通过 cloudflared tunnel）
-    const tunnelUrl = `${TUNNEL_URL}/api/submit`;
+    // 直接转发到本地服务（通过 cloudflared tunnel�?    const tunnelUrl = `${TUNNEL_URL}/api/submit`;
 
     const tunnelResp = await fetch(tunnelUrl, {
       method: 'POST',
@@ -66,7 +63,7 @@ export async function onRequest(context) {
     console.error('Submit error:', err);
     return new Response(JSON.stringify({
       success: false,
-      error: '无法连接到本地服务。请确保本地已启动 node server.mjs 和 cloudflared tunnel 隧道。',
+      error: '无法连接到本地服务。请确保本地已启�?node server.mjs �?cloudflared tunnel 隧道�?,
     }), {
       status: 503,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },

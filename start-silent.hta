@@ -1,0 +1,39 @@
+<html>
+<head>
+<title>PPT Service 启动中...</title>
+<HTA:APPLICATION
+  APPLICATIONNAME="PPT Service Launcher"
+  WINDOWSTATE="minimize"
+  SHOWINTASKBAR="no"
+  SINGLEINSTANCE="yes"
+  CONTEXTMENU="no"
+/>
+<script language="JScript">
+(function() {
+  var shell = new ActiveXObject("WScript.Shell");
+  var fso  = new ActiveXObject("Scripting.FileSystemObject");
+
+  // 工作目录 = HTA 所在目录
+  var currentDir = fso.GetParentFolderName(window.location.pathname);
+  shell.CurrentDirectory = currentDir;
+
+  // 启动 server.mjs（完全隐藏窗口）
+  var nodePath = fso.FileExists("node.exe") ? "node" :
+                 fso.FileExists("M:\\app\\ai\\node.exe") ? "M:\\app\\ai\\node.exe" : "node";
+  shell.Run("cmd /c start /B " + nodePath + " server.mjs --silent", 0, false);
+
+  // 等 2.5 秒后打开浏览器
+  setTimeout(function() {
+    shell.Run("http://127.0.0.1:3456", 1, false);
+  }, 2500);
+})();
+</script>
+</head>
+<body style="background:#1a1a2e;color:#fff;font-family:sans-serif;text-align:center;padding-top:60px">
+  <h2>⚡ PPT Service 启动中...</h2>
+  <p>正在启动服务，稍后会自动打开浏览器</p>
+  <p style="margin-top:30px;font-size:12px;color:#888">
+    如果浏览器未自动打开，请访问 <b>http://127.0.0.1:3456</b>
+  </p>
+</body>
+</html>

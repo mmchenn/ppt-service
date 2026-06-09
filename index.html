@@ -459,6 +459,14 @@
 
                 </form>
             </div>
+
+            <!-- ===== 订单历史 ===== -->
+            <div class="order-history">
+                <h3>📋 订单状态</h3>
+                <div id="orderHistory">
+                    <div class="text-muted text-sm" style="padding:8px 0;">暂无订单</div>
+                </div>
+            </div>
         </div>
     </main>
 
@@ -578,6 +586,18 @@
                 }, 3500);
             }
 
+            // ——— 订单历史展示 ———
+            var orderHistoryEl = document.getElementById('orderHistory');
+            function addOrderHistory(id, data) {
+                var row = document.createElement('div');
+                row.className = 'order-history-item';
+                row.innerHTML =
+                    '<div class="order-hd"><span class="order-id">#' + id + '</span> <span class="order-topic">' + escapeHtml(data.topic) + '</span>' +
+                    '<span class="order-status status-queued">⏳ 排队中</span></div>' +
+                    '<div class="order-detail">' + escapeHtml(data.customerName) + ' · ' + escapeHtml(data.email) + '</div>';
+                orderHistoryEl.insertBefore(row, orderHistoryEl.firstChild);
+            }
+
             // ——— Set min date ———
             (function() {
                 var deadline = document.getElementById('deadline');
@@ -651,21 +671,21 @@
                 progressArea.classList.add('active');
                 setStep(stepUpload, 'active');
 
-                var formData = new FormData();
-                formData.append('name', document.getElementById('name').value.trim());
-                formData.append('email', document.getElementById('email').value.trim());
-                formData.append('topic', document.getElementById('topic').value.trim());
-                formData.append('pages', document.getElementById('pages').value);
-                formData.append('deadline', document.getElementById('deadline').value);
-                formData.append('style', document.getElementById('style').value);
-                formData.append('notes', document.getElementById('notes').value.trim());
-                selectedFiles.forEach(function(file) {
-                    formData.append('attachments', file);
-                });
+                // 构建 JSON 提交（文件仅记录元数据，实际发送另行联系）
+                var orderData = {
+                    customerName: document.getElementById('name').value.trim(),
+                    email: document.getElementById('email').value.trim(),
+                    topic: document.getElementById('topic').value.trim(),
+                    pages: parseInt(document.getElementById('pages').value) || 15,
+                    deadline: document.getElementById('deadline').value,
+                    notes: document.getElementById('notes').value.trim(),
+                    attachments: selectedFiles.map(function(f) { return { name: f.name, size: f.size, type: f.type }; }),
+                };
 
                 fetch('https://ppt-service.pages.dev/api/submit', {
                     method: 'POST',
-                    body: formData,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(orderData),
                 })
                 .then(function(resp) {
                     if (!resp.ok) return resp.json().then(function(e) { throw new Error(e.error || '提交失败'); });
@@ -681,7 +701,9 @@
                     selectedFiles = [];
                     renderFileList();
                     progressArea.classList.remove('active');
-                    showToast('✅ 需求已自动提交到 Kimi AgentPPT，正在生成中...', 'success');
+                    var orderId = data.order_id || '';
+                    showToast('✅ 订单已提交！编号: ' + orderId + '，正在排队处理', 'success');
+                    addOrderHistory(orderId, orderData);
                 })
                 .catch(function(err) {
                     setStep(stepUpload, '');

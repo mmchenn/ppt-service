@@ -1,20 +1,28 @@
 {
   "name": "ppt-service",
   "version": "1.0.0",
-  "description": "一个专业的 PPT 代制作服务需求收集页面。客户打开页面 → 填写需求 → 一键复制发给卖家 → 卖家使用 Kimi + AgentPPT 完成制作。",
-  "main": "index.js",
+  "description": "PPT 智能生成 · Kimi + AgentPPT 桌面整合版 — 前端表单 → 本地服务器 → CDP 自动化 → 邮件发送",
+  "main": "electron.mjs",
   "scripts": {
-    "test": "node test-connection.mjs",
-    "check": "node test-connection.mjs",
+    "server": "node server.mjs",
     "cdp": "node kimi-cdp.mjs",
-    "webhook": "node server.mjs",
-    "start": "node server.mjs"
+    "electron": "npx electron electron.mjs",
+    "start": "npx electron electron.mjs",
+    "pack": "npx electron-builder build --win portable",
+    "pack:dir": "npx electron-builder build --win dir",
+    "dist": "npx electron-builder build --win nsis"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mmchenn/ppt-service.git"
   },
-  "keywords": [],
+  "keywords": [
+    "ppt",
+    "kimi",
+    "agentppt",
+    "electron",
+    "cdp"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
@@ -26,5 +34,46 @@
     "chrome-remote-interface": "^0.34.0",
     "nodemailer": "^8.0.10",
     "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "electron": "^30.5.1",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.pptservice.desktop",
+    "productName": "PPT智能生成",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron.mjs",
+      "preload.mjs",
+      "dashboard.html",
+      "server.mjs",
+      "kimi-cdp.mjs",
+      "index.html",
+      ".env.example",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png"
+    },
+    "extraResources": [
+      {
+        "from": "node_modules/",
+        "to": "node_modules/",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
   }
 }

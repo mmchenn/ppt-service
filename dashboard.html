@@ -1,0 +1,1304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PPT 智能生成 · 桌面控制台 v2</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: #0f172a; color: #e2e8f0; font-size: 14px; line-height: 1.5; overflow: hidden;
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        .app-shell { display: flex; flex-direction: column; height: 100vh; }
+
+        /* ===== Top Status Bar ===== */
+        .top-status-bar {
+            display: flex; align-items: center; gap: 16px;
+            padding: 6px 20px;
+            background: #0a0f1a;
+            border-bottom: 1px solid #1e293b;
+            flex-shrink: 0;
+            font-size: 12px;
+        }
+        .top-status-bar .status-item {
+            display: flex; align-items: center; gap: 6px;
+            color: #64748b;
+        }
+        .top-status-bar .status-dot-sm {
+            width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+        }
+        .status-dot-sm.green { background: #22c55e; box-shadow: 0 0 5px #22c55e88; }
+        .status-dot-sm.yellow { background: #eab308; box-shadow: 0 0 5px #eab30888; }
+        .status-dot-sm.red { background: #ef4444; box-shadow: 0 0 5px #ef444488; }
+        .status-dot-sm.gray { background: #475569; }
+        .top-status-bar .sep { color: #334155; user-select: none; }
+
+        /* ===== Titlebar ===== */
+        .titlebar {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 20px; background: #1e293b; border-bottom: 1px solid #334155;
+            user-select: none; flex-shrink: 0;
+        }
+        .titlebar h1 {
+            font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 10px; color: #f1f5f9;
+        }
+        .titlebar h1 .badge {
+            font-size: 10px; background: #2563eb; color: #fff; padding: 2px 8px; border-radius: 10px; font-weight: 500;
+        }
+        .titlebar-actions { display: flex; gap: 8px; }
+        .titlebar-actions button {
+            background: none; border: none; color: #94a3b8; cursor: pointer;
+            padding: 4px 10px; border-radius: 6px; font-size: 13px;
+            transition: background 0.15s, color 0.15s;
+        }
+        .titlebar-actions button:hover { background: #334155; color: #f1f5f9; }
+
+        /* ===== Main ===== */
+        .main-content { display: flex; flex: 1; overflow: hidden; }
+
+        /* ===== Sidebar ===== */
+        .sidebar {
+            width: 200px; flex-shrink: 0; background: #1e293b;
+            border-right: 1px solid #334155; display: flex; flex-direction: column; padding: 8px 0;
+        }
+        .nav-item {
+            display: flex; align-items: center; gap: 10px;
+            padding: 9px 16px; cursor: pointer; color: #94a3b8; font-size: 13px;
+            transition: all 0.15s; border-left: 3px solid transparent;
+        }
+        .nav-item:hover { background: #334155; color: #e2e8f0; }
+        .nav-item.active { background: #1e3a5f; color: #60a5fa; border-left-color: #3b82f6; }
+        .nav-item .nav-icon { font-size: 16px; width: 22px; text-align: center; flex-shrink: 0; }
+        .nav-item .nav-badge {
+            margin-left: auto; background: #3b82f6; color: #fff; font-size: 10px;
+            padding: 1px 6px; border-radius: 8px; font-weight: 600;
+            display: none;
+        }
+        .nav-item .nav-badge.show { display: inline; }
+
+        .sidebar-divider { height: 1px; background: #334155; margin: 8px 12px; }
+
+        /* ===== Panels ===== */
+        .panel-container { flex: 1; overflow-y: auto; padding: 20px 24px; background: #0f172a; }
+        .panel { display: none; }
+        .panel.active { display: block; }
+
+        .panel-header { margin-bottom: 20px; }
+        .panel-header h2 {
+            font-size: 18px; font-weight: 600; color: #f1f5f9;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .panel-header p { color: #64748b; font-size: 13px; margin-top: 2px; }
+
+        /* ===== Cards ===== */
+        .card {
+            background: #1e293b; border: 1px solid #334155; border-radius: 10px;
+            padding: 16px 20px; margin-bottom: 14px;
+        }
+        .card-title {
+            font-size: 13px; font-weight: 600; color: #94a3b8;
+            margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.3px;
+            display: flex; align-items: center; gap: 8px;
+        }
+
+        /* ===== Stats ===== */
+        .stat-row {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px;
+        }
+        .stat-box {
+            background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+            padding: 14px; text-align: center;
+        }
+        .stat-box .stat-value { font-size: 22px; font-weight: 700; color: #60a5fa; }
+        .stat-box .stat-label { font-size: 11px; color: #64748b; margin-top: 3px; }
+        .stat-box.green .stat-value { color: #22c55e; }
+        .stat-box.yellow .stat-value { color: #eab308; }
+        .stat-box.red .stat-value { color: #ef4444; }
+        .stat-box.blue .stat-value { color: #60a5fa; }
+
+        /* ===== Buttons ===== */
+        .btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 7px 16px; border-radius: 7px; border: none;
+            font-size: 13px; font-weight: 500; font-family: inherit; cursor: pointer;
+            transition: all 0.15s;
+        }
+        .btn-primary { background: #2563eb; color: #fff; }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-danger { background: #dc2626; color: #fff; }
+        .btn-danger:hover { background: #b91c1c; }
+        .btn-success { background: #16a34a; color: #fff; }
+        .btn-success:hover { background: #15803d; }
+        .btn-warning { background: #d97706; color: #fff; }
+        .btn-warning:hover { background: #b45309; }
+        .btn-outline { background: transparent; color: #94a3b8; border: 1px solid #334155; }
+        .btn-outline:hover { background: #334155; color: #e2e8f0; }
+        .btn-sm { padding: 4px 10px; font-size: 11px; }
+        .btn-xs { padding: 2px 8px; font-size: 10px; border-radius: 5px; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        /* ===== Log Viewer ===== */
+        .log-viewer {
+            background: #0a0f1a; border: 1px solid #1e293b; border-radius: 7px;
+            height: 240px; overflow-y: auto; padding: 10px 14px;
+            font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 12px; line-height: 1.6;
+        }
+        .log-entry { display: flex; gap: 8px; padding: 1px 0; }
+        .log-time { color: #475569; flex-shrink: 0; user-select: none; }
+        .log-msg { flex: 1; word-break: break-all; }
+        .log-msg.info { color: #94a3b8; }
+        .log-msg.success { color: #22c55e; }
+        .log-msg.warn { color: #eab308; }
+        .log-msg.error { color: #ef4444; }
+        .log-msg.server { color: #60a5fa; }
+        .log-msg.cdp { color: #c084fc; }
+        .log-msg.mail { color: #f472b6; }
+        .log-msg.upload { color: #34d399; }
+        .log-msg.dl { color: #fbbf24; }
+
+        /* ===== CDP Status ===== */
+        .cdp-status-bar {
+            display: flex; align-items: center; gap: 12px;
+            padding: 10px 14px; background: #0f172a; border: 1px solid #334155; border-radius: 7px; margin-top: 10px;
+        }
+        .cdp-status-bar .cdp-spinner {
+            width: 18px; height: 18px;
+            border: 2px solid #334155; border-top-color: #60a5fa; border-radius: 50%;
+            animation: spin 0.8s linear infinite; flex-shrink: 0;
+        }
+        .cdp-status-bar.running { border-color: #2563eb; background: #172033; }
+        .cdp-status-bar.done { border-color: #16a34a; background: #13201a; }
+        .cdp-status-bar .status-text { font-size: 13px; color: #94a3b8; flex: 1; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ===== Form ===== */
+        .form-group { margin-bottom: 14px; }
+        .form-group label { display: block; font-size: 13px; font-weight: 500; color: #94a3b8; margin-bottom: 4px; }
+        .form-group label .required { color: #ef4444; margin-left: 2px; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        @media (max-width: 640px) { .form-row { grid-template-columns: 1fr; } }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%; padding: 8px 12px; font-size: 13px; font-family: inherit;
+            background: #0f172a; border: 1.5px solid #334155; border-radius: 7px;
+            color: #e2e8f0; outline: none; transition: border-color 0.2s;
+        }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+        }
+        .form-group input.error, .form-group textarea.error { border-color: #ef4444; }
+        .form-group .hint { font-size: 11px; color: #475569; margin-top: 2px; }
+
+        /* ===== Upload ===== */
+        .upload-zone {
+            border: 2px dashed #334155; border-radius: 8px; padding: 20px; text-align: center;
+            cursor: pointer; transition: all 0.2s; background: #0f172a;
+        }
+        .upload-zone:hover { border-color: #3b82f6; background: #172033; }
+        .upload-zone.dragover { border-color: #3b82f6; background: #1a2744; }
+        .upload-zone.has-files { border-color: #16a34a; background: #13201a; }
+        .upload-zone .upload-icon { font-size: 24px; margin-bottom: 4px; }
+        .upload-zone .upload-text { font-size: 13px; color: #64748b; }
+        .upload-zone .upload-text strong { color: #60a5fa; }
+        .upload-zone .upload-hint { font-size: 11px; color: #475569; margin-top: 2px; }
+        .upload-zone input[type="file"] { display: none; }
+        .file-list { margin-top: 8px; }
+        .file-item {
+            display: flex; align-items: center; gap: 8px;
+            background: #0f172a; border: 1px solid #334155; border-radius: 5px;
+            padding: 5px 8px; margin-bottom: 3px;
+        }
+        .file-item .file-icon { font-size: 14px; flex-shrink: 0; }
+        .file-item .file-info { flex: 1; min-width: 0; }
+        .file-item .file-name { font-size: 12px; font-weight: 500; color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .file-item .file-size { font-size: 11px; color: #64748b; }
+        .file-item .file-remove {
+            background: none; border: none; cursor: pointer; font-size: 14px; color: #64748b;
+            padding: 2px 5px; border-radius: 3px; line-height: 1; transition: all 0.15s;
+        }
+        .file-item .file-remove:hover { background: #450a0a; color: #ef4444; }
+
+        /* ===== Order Table ===== */
+        .order-table-wrap { overflow-x: auto; }
+        .order-table {
+            width: 100%; border-collapse: collapse; font-size: 13px;
+        }
+        .order-table th {
+            text-align: left; padding: 8px 10px; color: #64748b; font-weight: 600; font-size: 11px;
+            border-bottom: 1px solid #334155; text-transform: uppercase; letter-spacing: 0.3px;
+        }
+        .order-table td {
+            padding: 8px 10px; border-bottom: 1px solid #1e293b; vertical-align: middle;
+        }
+        .order-table tr:hover td { background: #172033; }
+        .order-table .order-id { font-family: monospace; font-size: 11px; color: #64748b; }
+        .order-table .order-topic { font-weight: 500; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .order-table .order-customer { color: #94a3b8; }
+        .order-table .order-time { font-size: 11px; color: #475569; }
+
+        /* Status badges */
+        .badge-status {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;
+        }
+        .badge-status.queued { background: #1e293b; color: #eab308; border: 1px solid #eab30844; }
+        .badge-status.running { background: #1e3a5f; color: #60a5fa; border: 1px solid #3b82f644; }
+        .badge-status.completed { background: #13201a; color: #22c55e; border: 1px solid #22c55e44; }
+        .badge-status.failed { background: #1f1315; color: #ef4444; border: 1px solid #ef444444; }
+        .badge-status.cancelled { background: #1e1b1b; color: #94a3b8; border: 1px solid #47556944; }
+        .badge-status .spin-sm {
+            width: 10px; height: 10px; border: 1.5px solid #60a5fa44; border-top-color: #60a5fa;
+            border-radius: 50%; animation: spin 0.8s linear infinite;
+        }
+
+        /* ===== Order detail row ===== */
+        .order-detail-row { display: none; }
+        .order-detail-row.open { display: table-row; }
+        .order-detail-row td { padding: 0; }
+        .order-detail {
+            background: #0a0f1a; padding: 12px 16px; border-radius: 6px; margin: 4px 10px 8px;
+        }
+        .order-detail .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; }
+        .order-detail .detail-item { display: flex; gap: 6px; }
+        .order-detail .detail-item .dt-label { color: #64748b; flex-shrink: 0; min-width: 60px; }
+        .order-detail .detail-item .dt-value { color: #e2e8f0; }
+
+        /* ===== Queue list ===== */
+        .queue-list { display: flex; flex-direction: column; gap: 6px; }
+        .queue-item {
+            display: flex; align-items: center; gap: 10px;
+            background: #0f172a; border: 1px solid #334155; border-radius: 7px;
+            padding: 8px 12px; transition: all 0.15s;
+        }
+        .queue-item.running { border-color: #2563eb; }
+        .queue-item .qi-icon { font-size: 16px; flex-shrink: 0; }
+        .queue-item .qi-info { flex: 1; min-width: 0; }
+        .queue-item .qi-topic { font-size: 13px; font-weight: 500; color: #e2e8f0; }
+        .queue-item .qi-meta { font-size: 11px; color: #64748b; margin-top: 1px; }
+        .queue-item .qi-actions { flex-shrink: 0; }
+
+        /* ===== Progress bar ===== */
+        .progress-bar-wrap {
+            width: 100%; height: 4px; background: #1e293b; border-radius: 2px; overflow: hidden; margin-top: 4px;
+        }
+        .progress-bar-fill {
+            height: 100%; border-radius: 2px; transition: width 0.3s ease;
+            background: linear-gradient(90deg, #2563eb, #60a5fa);
+        }
+        .progress-bar-fill.completed { background: linear-gradient(90deg, #16a34a, #22c55e); }
+        .progress-bar-fill.failed { background: #dc2626; }
+
+        /* ===== Toast ===== */
+        .toast-container {
+            position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+            display: flex; flex-direction: column; gap: 6px; pointer-events: none;
+        }
+        .toast {
+            background: #1e293b; color: #e2e8f0; padding: 10px 18px; border-radius: 8px; font-size: 13px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.4); pointer-events: auto;
+            animation: toastIn 0.25s ease; display: flex; align-items: center; gap: 8px;
+            border: 1px solid #334155;
+        }
+        .toast.success { border-color: #16a34a; }
+        .toast.error { border-color: #dc2626; }
+        .toast.info { border-color: #3b82f6; }
+        .toast.out { animation: toastOut 0.2s ease forwards; }
+        @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes toastOut { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(8px); } }
+
+        /* ===== Notification ===== */
+        .notif-overlay {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px); z-index: 2000;
+            justify-content: center; align-items: center; padding: 20px;
+        }
+        .notif-overlay.open { display: flex; }
+        .notif-box {
+            background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+            max-width: 420px; width: 100%; padding: 28px; box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+            animation: modalIn 0.2s ease; text-align: center;
+        }
+        .notif-box .notif-icon { font-size: 48px; margin-bottom: 12px; }
+        .notif-box h3 { font-size: 18px; margin-bottom: 8px; color: #f1f5f9; }
+        .notif-box p { color: #94a3b8; font-size: 14px; margin-bottom: 16px; }
+        @keyframes modalIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+
+        /* ===== Settings ===== */
+        .settings-section { margin-bottom: 20px; }
+        .settings-section h3 {
+            font-size: 14px; font-weight: 600; color: #e2e8f0;
+            margin-bottom: 10px; padding-bottom: 4px; border-bottom: 1px solid #334155;
+        }
+        .settings-row {
+            display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+        }
+        .settings-row label { width: 110px; flex-shrink: 0; font-size: 13px; color: #94a3b8; }
+        .settings-row input, .settings-row select {
+            flex: 1; padding: 6px 10px; font-size: 13px; font-family: inherit;
+            background: #0f172a; border: 1.5px solid #334155; border-radius: 6px;
+            color: #e2e8f0; outline: none;
+        }
+        .settings-row input:focus { border-color: #3b82f6; }
+        .settings-note { font-size: 11px; color: #475569; margin-left: 120px; margin-top: -6px; margin-bottom: 10px; }
+
+        /* ===== About ===== */
+        .about-card { text-align: center; padding: 32px; }
+        .about-card .about-icon { font-size: 48px; margin-bottom: 12px; }
+        .about-card h3 { font-size: 20px; color: #f1f5f9; margin-bottom: 8px; }
+        .about-card .text-muted { color: #64748b; font-size: 13px; }
+
+        .mt-8 { margin-top: 8px; }
+        .mt-12 { margin-top: 12px; }
+        .mt-16 { margin-top: 16px; }
+        .mb-8 { margin-bottom: 8px; }
+        .flex { display: flex; }
+        .flex-center { align-items: center; }
+        .gap-8 { gap: 8px; }
+        .gap-16 { gap: 16px; }
+        .text-muted { color: #64748b; }
+        .text-sm { font-size: 12px; }
+        .text-xs { font-size: 11px; }
+        .w-full { width: 100%; }
+        .justify-center { justify-content: center; }
+    </style>
+</head>
+<body>
+
+<div class="app-shell">
+
+    <!-- ===== Top Status Bar ===== -->
+    <div class="top-status-bar">
+        <span class="status-item">
+            <span class="status-dot-sm yellow" id="tsServer"></span>
+            <span id="tsServerText">服务器检查中...</span>
+        </span>
+        <span class="sep">|</span>
+        <span class="status-item">
+            <span class="status-dot-sm gray" id="tsEdge"></span>
+            <span id="tsEdgeText">Edge 未检测</span>
+        </span>
+        <span class="sep">|</span>
+        <span class="status-item">
+            <span class="status-dot-sm gray" id="tsQueue"></span>
+            <span id="tsQueueText">队列空闲</span>
+        </span>
+        <span style="margin-left:auto;color:#475569;font-size:11px" id="tsUptime"></span>
+    </div>
+
+    <!-- ===== Titlebar ===== -->
+    <header class="titlebar">
+        <h1>
+            ⚡ PPT 智能生成
+            <span class="badge">v2.0</span>
+        </h1>
+        <div class="titlebar-actions">
+            <button id="btnTestNotif" title="测试通知">🔔</button>
+        </div>
+    </header>
+
+    <!-- ===== Main ===== -->
+    <div class="main-content">
+
+        <!-- ===== Sidebar ===== -->
+        <nav class="sidebar">
+            <div class="nav-item active" data-tab="dashboard">
+                <span class="nav-icon">📊</span> 控制台
+            </div>
+            <div class="nav-item" data-tab="order">
+                <span class="nav-icon">📋</span> 新建订单
+            </div>
+            <div class="nav-item" data-tab="history">
+                <span class="nav-icon">📜</span> 订单历史
+                <span class="nav-badge" id="historyBadge">0</span>
+            </div>
+            <div class="nav-item" data-tab="logs">
+                <span class="nav-icon">📝</span> 运行日志
+            </div>
+            <div class="sidebar-divider"></div>
+            <div class="nav-item" data-tab="settings">
+                <span class="nav-icon">⚙️</span> 设置
+            </div>
+            <div class="nav-item" data-tab="about">
+                <span class="nav-icon">ℹ️</span> 关于
+            </div>
+        </nav>
+
+        <!-- ===== Panel Container ===== -->
+        <div class="panel-container">
+
+            <!-- ===== DASHBOARD ===== -->
+            <div class="panel active" id="panel-dashboard">
+                <div class="panel-header">
+                    <h2>📊 控制台</h2>
+                    <p>服务状态、队列和快速操作</p>
+                </div>
+
+                <div class="stat-row">
+                    <div class="stat-box blue" id="statServer">
+                        <div class="stat-value">—</div>
+                        <div class="stat-label">服务器</div>
+                    </div>
+                    <div class="stat-box" id="statEdge">
+                        <div class="stat-value">✗</div>
+                        <div class="stat-label">Edge CDP</div>
+                    </div>
+                    <div class="stat-box" id="statQueue">
+                        <div class="stat-value">0</div>
+                        <div class="stat-label">排队中</div>
+                    </div>
+                    <div class="stat-box green" id="statDone">
+                        <div class="stat-value">0</div>
+                        <div class="stat-label">已完成</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">🎮 操作</div>
+                    <div class="btn-group">
+                        <button class="btn btn-success" id="btnLaunchEdge">🚀 启动 Edge (Kimi)</button>
+                        <button class="btn btn-outline" id="btnCheckEnv">🔍 环境检查</button>
+                        <button class="btn btn-outline btn-sm" onclick="location.reload()">🔄 刷新</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">🖥️ CDP 状态</div>
+                    <div id="cdpStatusArea">
+                        <div class="cdp-status-bar idle" id="cdpBar">
+                            <span class="status-text">等待操作...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">⏳ 当前队列</div>
+                    <div id="queuePanel">
+                        <div class="text-muted text-sm">暂无排队的订单</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== ORDER ===== -->
+            <div class="panel" id="panel-order">
+                <div class="panel-header">
+                    <h2>📋 新建订单</h2>
+                    <p>填写需求提交到 Kimi AgentPPT 自动生成，提交后自动排队</p>
+                </div>
+
+                <div class="card">
+                    <form id="orderForm" novalidate>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>客户称呼 <span class="required">*</span></label>
+                                <input type="text" id="ordName" placeholder="怎么称呼？" required>
+                            </div>
+                            <div class="form-group">
+                                <label>接收邮箱 <span class="required">*</span></label>
+                                <input type="email" id="ordEmail" placeholder="成品发送到此邮箱" required>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>PPT 主题 <span class="required">*</span></label>
+                            <input type="text" id="ordTopic" placeholder="例如：2026 年度市场部工作总结" required>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>页数 <span class="required">*</span></label>
+                                <input type="number" id="ordPages" min="1" max="35" value="15" required>
+                                <div class="hint">建议 10-35 页</div>
+                            </div>
+                            <div class="form-group">
+                                <label>交付时间 <span class="required">*</span></label>
+                                <input type="date" id="ordDeadline" required>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>内容要求</label>
+                            <textarea id="ordNotes" rows="3" placeholder="描述内容大纲、参考资料、配色等补充信息..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>附件资料 <span class="text-muted text-sm">（选填，最多 5 个，每个 ≤10MB）</span></label>
+                            <div class="upload-zone" id="ordUploadZone">
+                                <div class="upload-icon">📎</div>
+                                <div class="upload-text">点击或拖拽文件 <strong>上传附件</strong></div>
+                                <div class="upload-hint">支持 PDF、Word、Excel、图片、PPT 模板等</div>
+                                <input type="file" id="ordFileInput" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.zip,.rar,.txt,.md">
+                            </div>
+                            <div class="file-list" id="ordFileList"></div>
+                        </div>
+                        <div class="mt-12">
+                            <button type="submit" class="btn btn-primary" id="btnSubmitOrder" style="width:100%;justify-content:center;padding:10px;">
+                                🚀 提交到生成队列
+                            </button>
+                        </div>
+                    </form>
+                    <div id="orderProgress" style="display:none;margin-top:12px;">
+                        <div class="cdp-status-bar running">
+                            <div class="cdp-spinner"></div>
+                            <span class="status-text" id="orderStatusText">正在提交...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== HISTORY ===== -->
+            <div class="panel" id="panel-history">
+                <div class="panel-header">
+                    <h2>📜 订单历史</h2>
+                    <p>所有提交过的订单，点击行可查看详情</p>
+                    <div class="flex gap-8 mt-8">
+                        <button class="btn btn-outline btn-sm" id="btnRefreshOrders">🔄 刷新</button>
+                        <button class="btn btn-outline btn-sm" id="btnClearCompleted">🗑️ 清除已完成</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="order-table-wrap">
+                        <table class="order-table" id="orderTable">
+                            <thead>
+                                <tr>
+                                    <th>状态</th>
+                                    <th>主题</th>
+                                    <th>客户</th>
+                                    <th>页数</th>
+                                    <th>提交时间</th>
+                                    <th>完成时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="orderTableBody">
+                                <tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:20px;">暂无订单数据</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== LOGS ===== -->
+            <div class="panel" id="panel-logs">
+                <div class="panel-header">
+                    <h2>📝 运行日志</h2>
+                    <p>完整的系统运行记录</p>
+                    <div class="flex gap-8 mt-8">
+                        <button class="btn btn-outline btn-sm" id="btnClearLogs">🗑️ 清空</button>
+                        <button class="btn btn-outline btn-sm" id="btnCopyLogs">📋 复制</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="log-viewer" id="fullLogViewer" style="height:460px;"></div>
+                </div>
+            </div>
+
+            <!-- ===== SETTINGS ===== -->
+            <div class="panel" id="panel-settings">
+                <div class="panel-header">
+                    <h2>⚙️ 设置</h2>
+                    <p>配置服务器、邮件和下载选项</p>
+                </div>
+                <div class="card">
+                    <div class="settings-section">
+                        <h3>💾 下载</h3>
+                        <div class="settings-row">
+                            <label>下载目录</label>
+                            <input type="text" id="setDownloadDir" placeholder="例如: M:/资料 或 D:/PPT输出">
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h3>📧 邮件 (SMTP)</h3>
+                        <div class="settings-row"><label>SMTP 服务器</label><input type="text" id="setSmtpHost" value="smtp.qq.com"></div>
+                        <div class="settings-row"><label>端口</label><input type="number" id="setSmtpPort" value="465"></div>
+                        <div class="settings-row"><label>邮箱账号</label><input type="text" id="setSmtpUser" value="934409302@qq.com"></div>
+                        <div class="settings-row"><label>授权码</label><input type="password" id="setSmtpPass" placeholder="QQ邮箱授权码"></div>
+                        <div class="settings-note">QQ 邮箱需在"设置 → 账户 → 生成授权码"获取，非登录密码</div>
+                    </div>
+                    <div class="settings-section">
+                        <h3>📬 邮件 (Resend)</h3>
+                        <div class="settings-row"><label>API Key</label><input type="password" id="setResendKey" placeholder="re_..."></div>
+                        <div class="settings-row"><label>管理员邮箱</label><input type="text" id="setAdminEmail" placeholder="可选"></div>
+                    </div>
+                    <div class="btn-group mt-12">
+                        <button class="btn btn-primary" id="btnSaveSettings">💾 保存设置</button>
+                        <button class="btn btn-outline" id="btnResetSettings">↩️ 重置</button>
+                    </div>
+                    <p class="text-muted text-sm mt-8" id="saveSettingsMsg"></p>
+                </div>
+            </div>
+
+            <!-- ===== ABOUT ===== -->
+            <div class="panel" id="panel-about">
+                <div class="panel-header">
+                    <h2>ℹ️ 关于</h2>
+                </div>
+                <div class="card about-card">
+                    <div class="about-icon">⚡</div>
+                    <h3>PPT 智能生成服务</h3>
+                    <p class="text-muted">版本 2.0 · 桌面控制台</p>
+                    <p class="text-muted" style="margin-top:16px;">
+                        基于 Kimi + AgentPPT 的智能 PPT 生成服务<br>
+                        多订单队列 · CDP 自动化 · 一键启动 Edge · 邮件发送
+                    </p>
+                    <p class="text-muted text-xs" style="margin-top:20px;color:#475569;">
+                        技术栈: Node.js · CDP · Kimi AgentPPT · SSE
+                    </p>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- ===== Toast ===== -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ===== Notification Overlay ===== -->
+<div class="notif-overlay" id="notifOverlay">
+    <div class="notif-box">
+        <div class="notif-icon" id="notifIcon">✅</div>
+        <h3 id="notifTitle">完成！</h3>
+        <p id="notifMessage">PPT 生成已完成</p>
+        <button class="btn btn-primary" onclick="closeNotif()">知道了</button>
+    </div>
+</div>
+
+<script>
+(function() {
+    'use strict';
+
+    const API_BASE = window.location.origin;
+
+    // ===== API =====
+    const api = {
+        async get(path) {
+            const resp = await fetch(API_BASE + path);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            return await resp.json();
+        },
+        async post(path, body) {
+            const resp = await fetch(API_BASE + path, {
+                method: 'POST',
+                headers: typeof body === 'object' && !(body instanceof FormData)
+                    ? { 'Content-Type': 'application/json' } : {},
+                body: typeof body === 'string' ? body
+                    : body instanceof FormData ? body
+                    : JSON.stringify(body),
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            return await resp.json();
+        },
+        async del(path) {
+            const resp = await fetch(API_BASE + path, { method: 'DELETE' });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            return await resp.json();
+        },
+    };
+
+    // ===== Logging =====
+    const logs = [];
+    const MAX_LOGS = 500;
+
+    function addLog(type, msg) {
+        const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+        logs.push({ ts, type, msg });
+        if (logs.length > MAX_LOGS) logs.splice(0, logs.length - MAX_LOGS);
+        renderLogs();
+    }
+
+    function renderLogs() {
+        const full = document.getElementById('fullLogViewer');
+        if (!full) return;
+        const html = logs.map(l =>
+            `<div class="log-entry"><span class="log-time">${l.ts}</span><span class="log-msg ${l.type}">${escapeHtml(l.msg)}</span></div>`
+        ).join('');
+        full.innerHTML = html;
+        full.scrollTop = full.scrollHeight;
+    }
+
+    function escapeHtml(t) {
+        const d = document.createElement('div');
+        d.textContent = t; return d.innerHTML;
+    }
+
+    // ===== Toast =====
+    function showToast(msg, type) {
+        type = type || 'info';
+        const c = document.getElementById('toastContainer');
+        const t = document.createElement('div');
+        t.className = 'toast ' + type;
+        const icons = { success: '✅', error: '❌', info: 'ℹ️' };
+        t.innerHTML = (icons[type] || '') + ' ' + msg;
+        c.appendChild(t);
+        setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 210); }, 3500);
+    }
+
+    // ===== Notification =====
+    function showNotif(icon, title, msg) {
+        document.getElementById('notifIcon').textContent = icon || '✅';
+        document.getElementById('notifTitle').textContent = title || '完成！';
+        document.getElementById('notifMessage').textContent = msg || '';
+        document.getElementById('notifOverlay').classList.add('open');
+        // 播放提示音
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.frequency.value = 880; gain.gain.value = 0.15;
+            osc.start(); osc.stop(ctx.currentTime + 0.15);
+        } catch(e) {}
+    }
+    window.closeNotif = function() {
+        document.getElementById('notifOverlay').classList.remove('open');
+    };
+
+    // ===== Tab Navigation =====
+    document.querySelectorAll('[data-tab]').forEach(el => {
+        el.addEventListener('click', () => {
+            document.querySelectorAll('[data-tab]').forEach(x => x.classList.remove('active'));
+            document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+            el.classList.add('active');
+            const panel = document.getElementById('panel-' + el.dataset.tab);
+            if (panel) panel.classList.add('active');
+        });
+    });
+
+    // ===== Status Bar Update =====
+    function updateTopBar(status) {
+        const server = status.server || {};
+        const edge = status.cdp || {};
+        const stats = status.stats || {};
+
+        // Server dot
+        const srvDot = document.getElementById('tsServer');
+        const srvTxt = document.getElementById('tsServerText');
+        if (server.running) {
+            srvDot.className = 'status-dot-sm green';
+            srvTxt.textContent = `服务器 :${server.port}`;
+        } else {
+            srvDot.className = 'status-dot-sm red';
+            srvTxt.textContent = '服务器离线';
+        }
+
+        // Edge dot
+        const edgeDot = document.getElementById('tsEdge');
+        const edgeTxt = document.getElementById('tsEdgeText');
+        if (edge.connected) {
+            edgeDot.className = 'status-dot-sm green';
+            edgeTxt.textContent = 'Edge 已连接';
+        } else {
+            edgeDot.className = 'status-dot-sm gray';
+            edgeTxt.textContent = 'Edge 未连接';
+        }
+
+        // Queue dot
+        const qDot = document.getElementById('tsQueue');
+        const qTxt = document.getElementById('tsQueueText');
+        const active = (stats.queued || 0) + (stats.running || 0);
+        if (active > 0) {
+            qDot.className = 'status-dot-sm yellow';
+            qTxt.textContent = `${active} 个订单处理中`;
+        } else {
+            qDot.className = 'status-dot-sm green';
+            qTxt.textContent = '队列空闲';
+        }
+
+        // Uptime
+        const up = document.getElementById('tsUptime');
+        if (server.uptime) {
+            const h = Math.floor(server.uptime / 3600);
+            const m = Math.floor((server.uptime % 3600) / 60);
+            up.textContent = `运行 ${h}h ${m}m`;
+        }
+
+        // Stat boxes
+        document.getElementById('statServer').innerHTML =
+            `<div class="stat-value">${server.running ? ':3456' : '✗'}</div><div class="stat-label">${server.running ? '🟢 运行中' : '🔴 离线'}</div>`;
+        document.getElementById('statEdge').innerHTML =
+            `<div class="stat-value">${edge.connected ? '✓' : '✗'}</div><div class="stat-label">${edge.connected ? '🟢 已连接' : '🔴 未连接'}</div>`;
+        document.getElementById('statQueue').innerHTML =
+            `<div class="stat-value">${active}</div><div class="stat-label">处理中</div>`;
+        document.getElementById('statDone').innerHTML =
+            `<div class="stat-value">${stats.completed || 0}</div><div class="stat-label">已完成</div>`;
+
+        // Badge
+        const badge = document.getElementById('historyBadge');
+        if (stats.completed > 0) {
+            badge.textContent = stats.completed;
+            badge.classList.add('show');
+        } else {
+            badge.classList.remove('show');
+        }
+    }
+
+    // ===== CDP Bar =====
+    function updateCdpBar(state, text) {
+        const bar = document.getElementById('cdpBar');
+        if (!bar) return;
+        bar.className = 'cdp-status-bar ' + state;
+        const span = bar.querySelector('.status-text');
+        if (span) span.textContent = text;
+        bar.querySelectorAll('.cdp-spinner').forEach(s => s.remove());
+        if (state === 'running') {
+            const sp = document.createElement('div');
+            sp.className = 'cdp-spinner';
+            bar.prepend(sp);
+        }
+    }
+
+    // ===== Queue Panel =====
+    function renderQueuePanel(orders) {
+        const panel = document.getElementById('queuePanel');
+        const active = orders.filter(o => o.status === 'queued' || o.status === 'running');
+        if (active.length === 0) {
+            panel.innerHTML = '<div class="text-muted text-sm">当前没有待处理的订单</div>';
+            return;
+        }
+        const html = active.map(o => {
+            const isRunning = o.status === 'running';
+            const icons = { queued: '⏳', running: '🔄', completed: '✅', failed: '❌', cancelled: '⏹️' };
+            return `<div class="queue-item ${isRunning ? 'running' : ''}">
+                <span class="qi-icon">${icons[o.status] || '📋'}</span>
+                <div class="qi-info">
+                    <div class="qi-topic">${escapeHtml(o.topic || '无标题')}</div>
+                    <div class="qi-meta">${escapeHtml(o.customerName || '')} · ${o.pages || '?'}页 · ${o.progress || o.status}</div>
+                    <div class="progress-bar-wrap">
+                        <div class="progress-bar-fill ${o.status === 'completed' ? 'completed' : ''}"
+                             style="width:${o.status === 'running' ? '45' : o.status === 'completed' ? '100' : '15'}%"></div>
+                    </div>
+                </div>
+                <div class="qi-actions">
+                    ${o.status === 'queued' ? `<button class="btn btn-danger btn-xs" onclick="cancelOrder('${o.id}')">取消</button>` : ''}
+                    ${o.status === 'running' ? `<button class="btn btn-danger btn-xs" onclick="cancelOrder('${o.id}')">停止</button>` : ''}
+                </div>
+            </div>`;
+        }).join('');
+        panel.innerHTML = html;
+    }
+
+    window.cancelOrder = async function(id) {
+        if (!confirm('确定取消该订单吗？')) return;
+        try {
+            const r = await api.post(`/api/orders/${id}/cancel`, {});
+            if (r.success) showToast('已取消', 'info');
+        } catch (e) {
+            showToast('取消失败: ' + e.message, 'error');
+        }
+    };
+
+    // ===== Order Table =====
+    function renderOrderTable(orders) {
+        const tbody = document.getElementById('orderTableBody');
+        if (!orders || orders.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:20px;">暂无订单数据</td></tr>';
+            return;
+        }
+
+        const statusIcons = { queued: '⏳', running: '🔄', completed: '✅', failed: '❌', cancelled: '⏹️' };
+        const statusLabels = { queued: '排队中', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消' };
+
+        const html = orders.map(o => {
+            const icon = statusIcons[o.status] || '📋';
+            const label = statusLabels[o.status] || o.status;
+            const runningSpin = o.status === 'running' ? '<span class="spin-sm"></span>' : '';
+            const createdAt = o.createdAt ? o.createdAt.slice(5, 19) : '—';
+            const completedAt = o.completedAt ? o.completedAt.slice(5, 19) : '—';
+
+            return `<tr onclick="toggleOrderDetail('${o.id}')" style="cursor:pointer;">
+                <td><span class="badge-status ${o.status}">${runningSpin}${icon} ${label}</span></td>
+                <td><div class="order-topic" title="${escapeHtml(o.topic || '')}">${escapeHtml(o.topic || '—')}</div></td>
+                <td class="order-customer">${escapeHtml(o.customerName || '—')}</td>
+                <td>${o.pages || '?'}</td>
+                <td class="order-time">${createdAt}</td>
+                <td class="order-time">${completedAt}</td>
+                <td>
+                    ${o.status === 'queued' ? `<button class="btn btn-danger btn-xs" onclick="event.stopPropagation();cancelOrder('${o.id}')">取消</button>` : ''}
+                    ${o.status === 'running' ? `<button class="btn btn-danger btn-xs" onclick="event.stopPropagation();cancelOrder('${o.id}')">停止</button>` : ''}
+                    ${(o.status === 'completed' || o.status === 'failed' || o.status === 'cancelled') ? `<button class="btn btn-outline btn-xs" onclick="event.stopPropagation();deleteOrder('${o.id}')">删除</button>` : ''}
+                </td>
+            </tr>
+            <tr class="order-detail-row" id="detail-${o.id}">
+                <td colspan="7">
+                    <div class="order-detail">
+                        <div class="detail-grid">
+                            <div class="detail-item"><span class="dt-label">订单 ID</span><span class="dt-value">${o.id}</span></div>
+                            <div class="detail-item"><span class="dt-label">邮箱</span><span class="dt-value">${escapeHtml(o.email || '—')}</span></div>
+                            <div class="detail-item"><span class="dt-label">截止</span><span class="dt-value">${o.deadline || '—'}</span></div>
+                            <div class="detail-item" style="grid-column:1/-1"><span class="dt-label">备注</span><span class="dt-value">${escapeHtml(o.notes || '无')}</span></div>
+                            <div class="detail-item" style="grid-column:1/-1"><span class="dt-label">进度</span><span class="dt-value">${o.progress || o.status}</span></div>
+                            ${o.resultPath ? `<div class="detail-item" style="grid-column:1/-1"><span class="dt-label">文件</span><span class="dt-value">${escapeHtml(o.resultPath)}</span></div>` : ''}
+                        </div>
+                    </div>
+                </td>
+            </tr>`;
+        }).join('');
+        tbody.innerHTML = html;
+    }
+
+    window.toggleOrderDetail = function(id) {
+        const row = document.getElementById('detail-' + id);
+        if (row) row.classList.toggle('open');
+    };
+
+    window.deleteOrder = async function(id) {
+        if (!confirm('确定删除该订单记录吗？')) return;
+        try {
+            const r = await api.del(`/api/orders/${id}`);
+            if (r.success) showToast('已删除', 'info');
+        } catch (e) {
+            showToast('删除失败: ' + e.message, 'error');
+        }
+    };
+
+    // ===== Refresh Status =====
+    async function refreshAll() {
+        try {
+            const [status, orders] = await Promise.all([
+                api.get('/api/status'),
+                api.get('/api/orders'),
+            ]);
+            updateTopBar(status);
+            renderQueuePanel(orders);
+            renderOrderTable(orders);
+
+            // CDP status
+            const cdpProc = status.cdpProcess || {};
+            if (cdpProc.running) {
+                updateCdpBar('running', cdpProc.stage || '运行中...');
+            } else if (cdpProc.stage && cdpProc.stage.includes('完成')) {
+                updateCdpBar('done', '✅ ' + cdpProc.stage);
+            } else {
+                const edge = status.cdp || {};
+                updateCdpBar(edge.connected ? 'connected' : 'idle',
+                    edge.connected ? '🟢 CDP 已连接，Kimi 可自动操作'
+                        : '🔴 CDP 未连接 — 请先点击「启动 Edge」并登录 Kimi');
+            }
+        } catch (e) {
+            addLog('error', '状态刷新失败: ' + e.message);
+        }
+    }
+
+    function refreshOrdersOnly() {
+        api.get('/api/orders').then(orders => {
+            renderOrderTable(orders);
+            renderQueuePanel(orders);
+        }).catch(() => {});
+    }
+
+    // ===== Edge Launch =====
+    document.getElementById('btnLaunchEdge').addEventListener('click', async () => {
+        const btn = document.getElementById('btnLaunchEdge');
+        btn.disabled = true;
+        btn.textContent = '⏳ 启动中...';
+        try {
+            const r = await api.post('/api/edge/launch', {});
+            if (r.success) {
+                showToast('🚀 Edge 已启动（远程调试端口 9222，已打开 Kimi Slides）', 'success');
+                addLog('info', '🚀 Edge 已启动（Kimi Slides）');
+                // 提示用户在 Kimi 页面登录
+                setTimeout(() => {
+                    showToast('🔐 请在打开的 Kimi 页面中登录账号', 'info');
+                }, 3000);
+            } else {
+                showToast('❌ ' + (r.error || '启动失败'), 'error');
+            }
+        } catch (e) {
+            showToast('❌ 启动失败: ' + e.message, 'error');
+        }
+        btn.disabled = false;
+        btn.textContent = '🚀 启动 Edge (Kimi)';
+    });
+
+    // ===== Check Env =====
+    document.getElementById('btnCheckEnv').addEventListener('click', async () => {
+        addLog('info', '🔍 环境检查...');
+        try {
+            const status = await api.get('/api/status');
+            addLog(status.cdp.connected ? 'success' : 'warn', `CDP: ${status.cdp.connected ? '🟢 已连接' : '🔴 未连接'}`);
+            addLog('info', `CDP 进程: ${status.cdpProcess?.stage || '空闲'}`);
+            addLog('info', `队列长度: ${status.queueLength || 0}`);
+            addLog('info', `下载目录: ${status.downloadDir || '未设置'}`);
+            addLog('info', `已完成订单: ${status.stats?.completed || 0}`);
+            showToast('环境检查完成', 'info');
+        } catch (e) {
+            addLog('error', '环境检查失败: ' + e.message);
+        }
+    });
+
+    // ===== Order Form (same as before) =====
+    const MAX_FILES = 5;
+    const MAX_FILE_SIZE = 10 * 1024 * 1024;
+    let selectedFiles = [];
+
+    function formatSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / 1048576).toFixed(1) + ' MB';
+    }
+
+    function renderFileList() {
+        const list = document.getElementById('ordFileList');
+        list.innerHTML = '';
+        const iconMap = { pdf: '📕', doc: '📘', docx: '📘', xls: '📗', xlsx: '📗', ppt: '📙', pptx: '📙', png: '🖼', jpg: '🖼', jpeg: '🖼', gif: '🖼', zip: '📦', rar: '📦', txt: '📄', md: '📄' };
+        selectedFiles.forEach((f, i) => {
+            const ext = f.name.split('.').pop().toLowerCase();
+            const item = document.createElement('div');
+            item.className = 'file-item';
+            item.innerHTML = `
+                <span class="file-icon">${iconMap[ext] || '📎'}</span>
+                <span class="file-info">
+                    <div class="file-name">${escapeHtml(f.name)}</div>
+                    <div class="file-size">${formatSize(f.size)}</div>
+                </span>
+                <button type="button" class="file-remove" data-index="${i}">✕</button>`;
+            item.querySelector('.file-remove').addEventListener('click', () => {
+                selectedFiles.splice(i, 1);
+                renderFileList();
+                updateUploadZone();
+            });
+            list.appendChild(item);
+        });
+        updateUploadZone();
+    }
+
+    function updateUploadZone() {
+        const zone = document.getElementById('ordUploadZone');
+        zone.classList.toggle('has-files', selectedFiles.length > 0);
+    }
+
+    function addFiles(files) {
+        for (const file of files) {
+            if (selectedFiles.length >= MAX_FILES) { showToast('最多 5 个文件', 'error'); break; }
+            if (file.size > MAX_FILE_SIZE) { showToast(`"${file.name}" 超过 10MB`, 'error'); continue; }
+            selectedFiles.push(file);
+        }
+        renderFileList();
+    }
+
+    const uploadZone = document.getElementById('ordUploadZone');
+    const fileInput = document.getElementById('ordFileInput');
+    uploadZone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', function() { addFiles(this.files); this.value = ''; });
+    uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+    uploadZone.addEventListener('dragleave', e => { e.preventDefault(); uploadZone.classList.remove('dragover'); });
+    uploadZone.addEventListener('drop', e => {
+        e.preventDefault();
+        uploadZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+    });
+
+    (function() {
+        const dl = document.getElementById('ordDeadline');
+        const today = new Date();
+        dl.min = today.toISOString().slice(0, 10);
+        if (!dl.value) dl.value = today.toISOString().slice(0, 10);
+    })();
+
+    // ===== Submit Order =====
+    document.getElementById('orderForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const fields = [
+            { id: 'ordName', test: v => v.trim(), msg: '请输入称呼' },
+            { id: 'ordEmail', test: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()), msg: '邮箱格式不正确' },
+            { id: 'ordTopic', test: v => v.trim(), msg: '请输入主题' },
+            { id: 'ordPages', test: v => { const n = parseInt(v); return n >= 1 && n <= 35; }, msg: '页数 1-35' },
+            { id: 'ordDeadline', test: v => v, msg: '请选择日期' },
+        ];
+        let valid = true;
+        for (const f of fields) {
+            const el = document.getElementById(f.id);
+            if (!f.test(el.value)) { el.classList.add('error'); valid = false; }
+            else { el.classList.remove('error'); }
+        }
+        if (!valid) { showToast('请修正表单错误', 'error'); return; }
+
+        const name = document.getElementById('ordName').value.trim();
+        const email = document.getElementById('ordEmail').value.trim();
+        const topic = document.getElementById('ordTopic').value.trim();
+        const pages = document.getElementById('ordPages').value;
+        const deadline = document.getElementById('ordDeadline').value;
+        const notes = document.getElementById('ordNotes').value.trim();
+
+        document.getElementById('orderProgress').style.display = 'block';
+        document.getElementById('orderStatusText').textContent = '⏳ 提交中...';
+        document.getElementById('btnSubmitOrder').disabled = true;
+
+        try {
+            if (selectedFiles.length > 0) {
+                // 有文件: upload via FormData → /api/submit
+                document.getElementById('orderStatusText').textContent = '📤 上传附件中...';
+                const formData = new FormData();
+                formData.append('name', name);
+                formData.append('email', email);
+                formData.append('topic', topic);
+                formData.append('pages', pages);
+                formData.append('deadline', deadline);
+                formData.append('notes', notes);
+                selectedFiles.forEach(f => formData.append('attachments', f));
+
+                const resp = await fetch(API_BASE + '/api/submit', { method: 'POST', body: formData });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({ error: '网络错误' }));
+                    throw new Error(err.error || `HTTP ${resp.status}`);
+                }
+                showToast('✅ 已加入生成队列！', 'success');
+                addLog('success', `📋 新订单: ${topic} (附件 ${selectedFiles.length} 个)`);
+            } else {
+                // 无文件: POST /api/orders as JSON
+                document.getElementById('orderStatusText').textContent = '📋 提交到队列...';
+                await api.post('/api/orders', {
+                    customerName: name,
+                    email, topic,
+                    pages: parseInt(pages),
+                    deadline, notes,
+                });
+                showToast('✅ 已加入生成队列！', 'success');
+                addLog('success', `📋 新订单: ${topic} (${pages}页, ${name})`);
+            }
+
+            document.getElementById('orderForm').reset();
+            selectedFiles = [];
+            renderFileList();
+            document.getElementById('ordDeadline').value = new Date().toISOString().slice(0, 10);
+            // 切换到历史页查看
+            setTimeout(() => {
+                document.querySelector('[data-tab="dashboard"]').click();
+                refreshAll();
+            }, 500);
+
+        } catch (err) {
+            showToast('❌ ' + err.message, 'error');
+            addLog('error', `订单失败: ${err.message}`);
+        }
+
+        document.getElementById('btnSubmitOrder').disabled = false;
+        setTimeout(() => { document.getElementById('orderProgress').style.display = 'none'; }, 3000);
+    });
+
+    // ===== Settings =====
+    async function loadSettings() {
+        try {
+            const s = await api.get('/api/settings');
+            document.getElementById('setDownloadDir').value = s.downloadDir || '';
+            document.getElementById('setSmtpHost').value = s.smtpHost || 'smtp.qq.com';
+            document.getElementById('setSmtpPort').value = s.smtpPort || 465;
+            document.getElementById('setSmtpUser').value = s.smtpUser || '';
+            document.getElementById('setSmtpPass').value = s.smtpPass || '';
+            document.getElementById('setResendKey').value = s.resendApiKey || '';
+            document.getElementById('setAdminEmail').value = s.adminEmail || '';
+        } catch (e) { addLog('error', '加载设置失败: ' + e.message); }
+    }
+
+    document.getElementById('btnSaveSettings').addEventListener('click', async () => {
+        try {
+            const s = {
+                downloadDir: document.getElementById('setDownloadDir').value,
+                smtpHost: document.getElementById('setSmtpHost').value,
+                smtpPort: parseInt(document.getElementById('setSmtpPort').value) || 465,
+                smtpUser: document.getElementById('setSmtpUser').value,
+                smtpPass: document.getElementById('setSmtpPass').value,
+                resendApiKey: document.getElementById('setResendKey').value,
+                adminEmail: document.getElementById('setAdminEmail').value,
+            };
+            await api.post('/api/settings', s);
+            document.getElementById('saveSettingsMsg').textContent = '✅ 已保存 (' + new Date().toLocaleTimeString() + ')';
+            showToast('设置已保存', 'success');
+        } catch (e) { showToast('保存失败: ' + e.message, 'error'); }
+    });
+
+    document.getElementById('btnResetSettings').addEventListener('click', () => {
+        const defaults = {
+            downloadDir: '', smtpHost: 'smtp.qq.com', smtpPort: 465,
+            smtpUser: '', smtpPass: '', resendApiKey: '', adminEmail: '',
+        };
+        api.post('/api/settings', defaults).then(() => {
+            loadSettings();
+            showToast('已重置为默认值', 'info');
+        });
+    });
+
+    // ===== Log Controls =====
+    document.getElementById('btnClearLogs').addEventListener('click', async () => {
+        try { await fetch(API_BASE + '/api/logs/clear', { method: 'POST' }); } catch (e) {}
+        logs.length = 0;
+        renderLogs();
+    });
+    document.getElementById('btnCopyLogs').addEventListener('click', () => {
+        const text = logs.map(l => `[${l.ts}] ${l.msg}`).join('\n');
+        navigator.clipboard.writeText(text).then(() => showToast('已复制到剪贴板', 'success'));
+    });
+    document.getElementById('btnRefreshOrders').addEventListener('click', () => {
+        refreshOrdersOnly();
+        showToast('已刷新', 'info');
+    });
+    document.getElementById('btnClearCompleted').addEventListener('click', async () => {
+        if (!confirm('确定清除所有已完成和已取消的记录吗？')) return;
+        try {
+            const orders = await api.get('/api/orders');
+            for (const o of orders) {
+                if (o.status === 'completed' || o.status === 'cancelled' || o.status === 'failed') {
+                    await api.del(`/api/orders/${o.id}`).catch(() => {});
+                }
+            }
+            refreshOrdersOnly();
+            showToast('已清除', 'success');
+        } catch (e) { showToast('清除失败: ' + e.message, 'error'); }
+    });
+
+    // ===== SSE =====
+    function connectSse() {
+        const es = new EventSource(API_BASE + '/api/logs/stream');
+        es.onmessage = (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                if (data.type && data.msg) {
+                    addLog(data.type, data.msg);
+                }
+                // Handle order updates and notifications
+                if (data.type === 'order_update' && data.order) {
+                    refreshOrdersOnly();
+                }
+                if (data.type === 'notification') {
+                    const n = data;
+                    const icon = n.status === 'completed' ? '✅' : '❌';
+                    const title = n.status === 'completed' ? '✅ PPT 生成完成！' : '❌ PPT 生成失败';
+                    showNotif(icon, title, n.message || '');
+                    showToast(n.message || '', n.status === 'completed' ? 'success' : 'error');
+                    addLog(n.status === 'completed' ? 'success' : 'error', '🔔 ' + (n.message || ''));
+                }
+            } catch (err) {}
+        };
+        es.onerror = () => {};
+    }
+
+    // ===== Test Notification =====
+    document.getElementById('btnTestNotif').addEventListener('click', () => {
+        showNotif('✅', '测试通知', '这是一个测试通知！如果你能看到这个，通知系统正常工作。');
+    });
+
+    // ===== Init =====
+    addLog('success', '⚡ PPT 智能生成服务 v2.0 已加载');
+    addLog('info', '🔔 通知系统已就绪');
+    loadSettings();
+    refreshAll();
+    connectSse();
+
+    // Auto refresh
+    setInterval(refreshAll, 5000);
+
+    // Focus tab from URL hash
+    const hash = window.location.hash.slice(1);
+    if (hash) {
+        const tab = document.querySelector(`[data-tab="${hash}"]`);
+        if (tab) tab.click();
+    }
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+[
+  {
+    "id": "0lt80s8e",
+    "customerName": "mm",
+    "email": "934409302@qq.com",
+    "topic": "ceshi",
+    "pages": 1,
+    "deadline": "2026-06-08",
+    "notes": "测试",
+    "attachments": [],
+    "filePaths": [],
+    "status": "failed",
+    "progress": "❌ 失败",
+    "createdAt": "2026-06-08 14:54:25",
+    "completedAt": "2026-06-08 14:54:48",
+    "resultPath": null,
+    "error": null
+  }
+]

@@ -1,0 +1,7 @@
+name = "ppt-service"
+pages_build_output_dir = "./"
+
+[[d1_databases]]
+binding = "ppt_orders"
+database_name = "ppt-orders"
+database_id = "87d578f6-d85c-4b9d-a29e-9a4450fe0be4"

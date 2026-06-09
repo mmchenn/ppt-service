@@ -1,195 +1,77 @@
-# PPT Service — 全自动生成系统
+# PPT 智能生成服务 · 桌面版
 
-**客户网页表单 → Kimi AgentPPT 生成 → 自动导出下载 → QQ 邮件发送客户**
+把 Kimi + AgentPPT 自动生成 PPT 的工作流程打包成一个小软件。
 
-项目地址: https://github.com/mmchenn/ppt-service
-在线表单: https://ppt-service.pages.dev/
+客户网页表单 → Kimi AgentPPT 自动生成 → 下载到本地 → 邮件发送客户
 
----
+## 两种使用方式
 
-## 系统架构
+### 🅰 浏览器版（推荐，最稳定）
 
-```
-┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐
-│  客户提交表单  │ ──▶ │  Cloudflare Worker │ ──▶ │ 本地 Webhook 服务 │
-│ ppt-service   │     │ (functions/api/   │     │ (server.mjs)     │
-│ .pages.dev    │     │  submit.js)       │     │ port 3456        │
-└──────────────┘     └──────────────────┘     └────────┬─────────┘
-                                                        │
-                                                        ▼
-┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐
-│  QQ 邮件发送   │ ◀── │  PPT 下载到本地   │ ◀── │ CDP 操作 Edge    │
-│  (带附件)     │     │  M:/资料/        │     │ (kimi-cdp.mjs)   │
-└──────────────┘     └──────────────────┘     └──────────────────┘
-                                                        │
-                                                        ▼
-                                               ┌──────────────────┐
-                                               │  Kimi AgentPPT   │
-                                               │  www.kimi.com/   │
-                                               │  slides          │
-                                               └──────────────────┘
-```
-
-## 核心流程
-
-```
-1. 客户在 https://ppt-service.pages.dev/ 填写需求
-   → 自动提交到 Cloudflare Worker 保存
-
-2. Worker 转发到本地 Webhook (server.mjs)
-
-3. CDP 自动化 (kimi-cdp.mjs) 操作 Edge 浏览器:
-   a. 打开 Kimi Slides 页面
-   b. 选择模式（智能布局 / 经典模板）
-   c. 输入提示词 → 点击发送
-   d. 等待生成完成（检测预览卡片）
-   e. 点击卡片进入编辑器
-   f. 点击"导出"按钮
-   g. 点击"直接下载"
-   h. PPT 保存到 M:\资料\
-
-4. 通过 QQ 邮箱 SMTP 发送邮件给客户（含 PPTX 附件）
-```
-
----
-
-## 文件说明
-
-| 文件 | 作用 |
-|------|------|
-| [index.html](index.html) | 前端落地页，客户填写 PPT 需求表单 |
-| [functions/api/submit.js](functions/api/submit.js) | Cloudflare Worker，接收+存储表单数据 |
-| [kimi-cdp.mjs](kimi-cdp.mjs) | **核心** — CDP 浏览器自动化脚本 |
-| [server.mjs](server.mjs) | 本地 Webhook 中转服务 |
-| [test-connection.mjs](test-connection.mjs) | 环境检测工具 |
-| [.env](.env) | 配置文件（SMTP 密码 + API Key） |
-| [启动Kimi自动化.bat](启动Kimi自动化.bat) | 桌面快捷方式（在桌面上） |
-| [PPT全自动流程.bat](PPT全自动流程.bat) | 桌面快捷方式（在桌面上） |
-
----
-
-## 电脑环境要求
-
-| 项目 | 要求 |
-|------|------|
-| 操作系统 | Windows 10 / 11 |
-| Node.js | v18+（推荐 v22+） |
-| 浏览器 | Microsoft Edge（最新版） |
-| NPM | 随 Node.js 自带 |
-
-### 依赖安装
-
-```powershell
+```bash
 cd C:\Users\Administrator\ppt-service
-npm install
+node server.mjs
 ```
 
-会自动安装: `chrome-remote-interface`、`nodemailer`、`ws`
+打开浏览器访问 **http://localhost:3456** 即可使用完整控制台。
 
----
+**静默后台运行（关掉终端窗口也不影响）**：
+- 双击 `start-silent.vbs` — **完全不弹窗口**
+- 双击 `start-backend.bat` — 弹窗但不影响服务
 
-## 使用方法
+**关闭服务**：双击 `stop-backend.bat`
 
-### 第一步：启动 Edge（调试模式）
+### 🅱 Electron 桌面版（有系统托盘）
 
-**方式 A：双击桌面快捷方式** `启动Kimi自动化.bat`
-
-**方式 B：手动运行**
-```powershell
-taskkill /F /IM msedge.exe
-"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" ^
-  --remote-debugging-port=9222 ^
-  --user-data-dir="C:\Users\Administrator\.claude-edge-debug" ^
-  https://www.kimi.com/slides
+```bash
+npm start
 ```
 
-### 第二步：在 Edge 中操作
+弹出桌面窗口，右下角有托盘图标。关掉窗口不会退出，后台继续运行。
 
-1. 打开 https://www.kimi.com/slides
-2. 登录 Kimi（如未登录）
-3. 输入你需要的 PPT 提示词
-4. 选择模式（经典模板/智能布局）
-5. 点击发送，等待生成完成（出现预览卡片）
+**打包成独立 exe：**
+```bash
+npm run pack
+```
+输出在 `release/PPT智能生成-1.0.0.exe`
 
-### 第三步：运行自动化脚本
+## 控制台功能
 
-```powershell
-cd C:\Users\Administrator\ppt-service
-node kimi-cdp.mjs --prompt "2026年人工智能发展趋势PPT" --mode "经典模板" --email "客户邮箱@qq.com" --customer "客户称呼"
+| 面板 | 功能 |
+|---|---|
+| 📊 控制台 | 状态查看（服务器/CDP/Edge）、环境检查、一键启动 Edge |
+| 📋 新建订单 | 填写客户需求 + 上传附件 → 一键提交到 Kimi 自动生成 |
+| 📜 运行日志 | SSE 实时推送的彩色日志 |
+| ⚙️ 设置 | 端口、下载目录、SMTP 邮件配置 |
+
+## 前置条件
+
+1. **Edge 浏览器** 以远程调试模式启动：
+   ```
+   "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --remote-debugging-port=9222
+   ```
+   或者在控制台点"🚀 启动 Edge"按钮自动启动。
+
+2. **Kimi Slides** 已打开并登录：
+   `https://www.kimi.com/slides`
+
+## 架构
+
+```
+浏览器打开 http://localhost:3456
+    ↓（同源 fetch / SSE）
+server.mjs（全能后端）
+    ├─ 托管 Web UI (dashboard.html)
+    ├─ REST API (/api/status, /api/settings, /api/cdp/run...)
+    ├─ SSE 实时日志 (/api/logs/stream)
+    ├─ 文件上传接收 (/api/submit)
+    └─ 调用 kimi-cdp.mjs
+         └─ Edge CDP → Kimi AgentPPT → 下载 → 发邮件
 ```
 
-脚本会自动：
-- 检测到预览卡片 → 进入编辑器
-- 点击导出 → 点击直接下载
-- PPT 保存到 M:\资料\
-- 自动发邮件给客户（带 PPTX 附件）
+## 关键改进
 
----
-
-## 邮件配置
-
-### QQ 邮箱 SMTP
-
-1. 登录 https://mail.qq.com
-2. 设置 → 账户 → 生成授权码
-3. 将授权码填入 [.env](.env)：
-```
-SMTP_USER=934409302@qq.com
-SMTP_PASS=你的授权码
-```
-
-### 管理员邮箱
-
-在 [.env](.env) 中设置：
-```
-ADMIN_EMAIL=你的邮箱@qq.com
-```
-所有客户邮件会自动抄送管理员。
-
----
-
-## 配置文件（.env）
-
-```env
-RESEND_API_KEY=re_xxxxxxxx         # Resend 备用发信（可不填）
-ADMIN_EMAIL=admin@example.com       # 管理员通知邮箱
-DOWNLOAD_DIR=M:/资料                 # PPT 下载路径
-SMTP_HOST=smtp.qq.com               # SMTP 服务器
-SMTP_PORT=465                       # SMTP 端口
-SMTP_USER=934409302@qq.com          # QQ 邮箱账号
-SMTP_PASS=xxxxxxxxxxxxxx            # QQ 邮箱授权码
-```
-
----
-
-## 命令行参数
-
-```powershell
-node kimi-cdp.mjs [参数]
-
---prompt "提示词"       必填，PPT 内容描述
---mode "智能布局|经典模板"   可选，默认智能布局
---email "客户邮箱"       可选，自动发邮件
---customer "客户称呼"    可选，邮件中的称呼
---files "附件路径"       可选，逗号分隔
-```
-
----
-
-## npm 快捷命令
-
-```powershell
-npm run check    # 环境检测（Edge 是否在线）
-npm run cdp      # CDP 自动化（交互式）
-npm run webhook  # 启动 Webhook 服务
-npm start        # 启动 Webhook 服务
-```
-
----
-
-## 开发相关
-
-- Cloudflare Pages: https://ppt-service.pages.dev/
-- GitHub 仓库: https://github.com/mmchenn/ppt-service
-- Kimi Slides: https://www.kimi.com/slides
-- Edge 调试端口: 9222
+- **不再是终端黑框** — 浏览器访问，关掉浏览器服务仍在
+- **崩溃自愈** — 服务器挂了自动重启（2s→4s→6s 递增等待）
+- **静默启动** — VBS 脚本完全不弹窗口，适合开机自启
+- **Electron 变可选** — 不装 Electron 也能用

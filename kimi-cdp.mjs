@@ -1056,9 +1056,9 @@ async function runAutomation(opts) {
 
     await tab.close();
     log('='.repeat(60));
-    log(`🎉 全流程完成！` + (fileInfo ? ` PPT: ${fileInfo.fileName}` : ''));
-    log('='.repeat(60));
-    return { success: true, filePath: fileInfo?.filePath || null };
+    log(`🎉 全流程完成！` + (fileInfoPath ? ` PPT: ${path.basename(fileInfoPath)}` : ''));
+
+    return { success: true, filePath: fileInfoPath || null };
 
   } catch (e) {
     log(`自动化失败: ${e.stack || e.message}`, 'error');

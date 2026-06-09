@@ -15,8 +15,8 @@ if not exist "%NODE_CMD%" (
   exit /b 1
 )
 
-rem 启动服务，完全隐藏窗口
-start /B "" "%NODE_CMD%" server.mjs --silent
+rem 启动服务，完全隐藏窗口（传入 POLL_TOKEN 环境变量）
+start /B "" cmd /c "set POLL_TOKEN=%POLL_TOKEN% && "%NODE_CMD%" server.mjs --silent"
 
 rem 等待 3 秒（用 WScript.Sleep 不弹窗口）
 echo >"%TEMP%\ppt_wait.vbs" WScript.Sleep 3000
